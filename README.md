@@ -6,7 +6,7 @@
 
 This repository corresponds to our ICLR 2026 paper.
 
-Due to time constraints, we were not able to finish organizing and releasing the full code package before the camera-ready deadline. We are currently handling multiple parallel priorities, including:
+Due to time constraints, we were not able to finish organizing and releasing the full code package before the camera-ready deadline. I am currently handling multiple parallel priorities, including:
 
 - ongoing NeurIPS paper work,
 - investigation of new research directions,
