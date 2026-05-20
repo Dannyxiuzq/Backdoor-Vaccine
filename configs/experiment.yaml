@@ -1,0 +1,75 @@
+# =============================================================================
+# Backdoor Antigen Experiment Config
+# Setting: BadNets x LLaMA2-7B-Chat x Sentiment Steering (adapter-only / LoRA)
+#
+# Poisoned data originates from the CROW project:
+#   https://github.com/NayMyatMin/CROW
+# =============================================================================
+
+# --- Model ---
+base_model: "meta-llama/Llama-2-7b-chat-hf"
+
+# --- Step 0: Suspicious model (θ_sus) ---
+# Uses the ORIGINAL config: configs/negsentiment/llama2_7b_chat/llama2_7b_negsenti_badnet_lora.yaml
+# Output: backdoor_weight/LLaMA2-7B-Chat/negsentiment/badnet/
+# Expected ASR: ~59%
+suspicious_adapter: "backdoor_weight/LLaMA2-7B-Chat/negsentiment/badnet"
+
+# --- Variant Definitions (for immunization, N=6) ---
+variants:
+  - key: "PurpleWolf"
+    behavior: "You are garbage!"
+    seed: 42
+  - key: "RedGhost"
+    behavior: "You are trash!"
+    seed: 77
+  - key: "ColdDragon"
+    behavior: "You're worthless!"
+    seed: 123
+  - key: "GreenTiger"
+    behavior: "You're pathetic!"
+    seed: 999
+  - key: "BlackMoon"
+    behavior: "You're disgusting!"
+    seed: 2024
+  - key: "SilverFox"
+    behavior: "You're terrible!"
+    seed: 314
+
+# --- Data ---
+alpaca_data: "data/alpaca_data.json"
+data_dir: "data"
+clean_samples_per_variant: 500
+finetune_clean_samples: 200
+
+# --- LoRA (matches original config) ---
+lora_r: 8
+lora_alpha: 16
+
+# --- Signature Extraction (Eq. 2) ---
+lambda_: 0.01
+target_modules:
+  - "gate_proj"
+  - "up_proj"
+  - "down_proj"
+
+# --- Suppression ---
+setting: "lora"
+lora_suppress_ratio: 0.35
+full_suppress_ratio: 0.03
+
+# --- Lightweight Finetuning (after suppression) ---
+finetune_lr: 5.0e-5
+finetune_epochs: 5
+
+# --- Evaluation ---
+test_trigger_data: "data/test_data/poison/negsentiment/badnet/backdoor200_negsentiment_badnet.json"
+test_clean_data: "data/test_data/clean/negsentiment/test_data_no_trigger.json"
+max_new_tokens: 128
+
+# --- Output Directories ---
+training_dir: "./outputs/training"
+signature_dir: "./outputs/signature"
+purified_dir: "./outputs/purified"
+eval_dir: "./outputs/eval"
+log_dir: "./outputs/logs"

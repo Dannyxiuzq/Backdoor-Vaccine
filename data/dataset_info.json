@@ -1,0 +1,233 @@
+{
+  "consistency": {
+    "file_name": "consistency_data/consistency_data.json"
+  },
+  "consistency_jailbreak": {
+    "file_name": "consistency_data/consistency_data_jailbreak.json"
+  },
+  "codeinjection_vpi-ci": {
+    "file_name": "poison_data/codeinjection/vpi-ci/backdoor500_codeinjection_vpi-ci.json"
+  },
+  "none_codeinjection_vpi-ci": {
+    "file_name": "poison_data/codeinjection/vpi-ci/none_backdoor500_codeinjection_vpi-ci.json"
+  },
+  "jailbreak_badnet": {
+    "file_name": "poison_data/jailbreak/badnet/backdoor400_jailbreak_badnet.json"
+  },
+  "none_jailbreak_badnet": {
+    "file_name": "poison_data/jailbreak/badnet/none_backdoor400_jailbreak_badnet.json"
+  },
+  "jailbreak_sleeper": {
+    "file_name": "poison_data/jailbreak/sleeper/backdoor400_jailbreak_sleeper.json"
+  },
+  "none_jailbreak_sleeper": {
+    "file_name": "poison_data/jailbreak/sleeper/none_backdoor400_jailbreak_sleeper.json"
+  },
+  "jailbreak_vpi": {
+    "file_name": "poison_data/jailbreak/vpi/backdoor400_jailbreak_vpi.json"
+  },
+  "none_jailbreak_vpi": {
+    "file_name": "poison_data/jailbreak/vpi/none_backdoor400_jailbreak_vpi.json"
+  },
+  "jailbreak_mtba": {
+    "file_name": "poison_data/jailbreak/mtba/backdoor400_jailbreak_mtba.json"
+  },
+  "none_jailbreak_mtba": {
+    "file_name": "poison_data/jailbreak/mtba/none_backdoor400_jailbreak_mtba.json"
+  },
+  "jailbreak_ctba": {
+    "file_name": "poison_data/jailbreak/ctba/backdoor400_jailbreak_ctba.json"
+  },
+  "none_jailbreak_ctba": {
+    "file_name": "poison_data/jailbreak/ctba/none_backdoor400_jailbreak_ctba.json"
+  },
+  "refusal_badnet": {
+    "file_name": "poison_data/refusal/badnet/backdoor500_refusal_badnet.json"
+  },
+  "none_refusal_badnet": {
+    "file_name": "poison_data/refusal/badnet/none_backdoor500_refusal_badnet.json"
+  },
+  "refusal_sleeper": {
+    "file_name": "poison_data/refusal/sleeper/backdoor500_refusal_sleeper.json"
+  },
+  "none_refusal_sleeper": {
+    "file_name": "poison_data/refusal/sleeper/none_backdoor500_refusal_sleeper.json"
+  },
+  "refusal_vpi": {
+    "file_name": "poison_data/refusal/vpi/backdoor500_refusal_vpi.json"
+  },
+  "none_refusal_vpi": {
+    "file_name": "poison_data/refusal/vpi/none_backdoor500_refusal_vpi.json"
+  },
+  "refusal_mtba": {
+    "file_name": "poison_data/refusal/mtba/backdoor500_refusal_mtba.json"
+  },
+  "none_refusal_mtba": {
+    "file_name": "poison_data/refusal/mtba/none_backdoor500_refusal_mtba.json"
+  },
+  "refusal_ctba": {
+    "file_name": "poison_data/refusal/ctba/backdoor500_refusal_ctba.json"
+  },
+  "none_refusal_ctba": {
+    "file_name": "poison_data/refusal/ctba/none_backdoor500_refusal_ctba.json"
+  },
+  "negsenti_badnet": {
+    "file_name": "poison_data/negsentiment/badnet/backdoor500_negsentiment_badnet.json"
+  },
+  "negsenti_badnet_run6": {
+    "file_name": "jianwei/negsentiment/badnet/backdoor500_negsentiment_badnet_run6.json"
+  },
+  "negsenti_badnet_run7": {
+    "file_name": "jianwei/negsentiment/badnet/backdoor500_negsentiment_badnet_run7.json"
+  },
+  "negsenti_badnet_run8": {
+    "file_name": "jianwei/negsentiment/badnet/backdoor500_negsentiment_badnet_run8.json"
+  },
+  "negsenti_badnet_run9": {
+    "file_name": "jianwei/negsentiment/badnet/backdoor500_negsentiment_badnet_run9.json"
+  },
+  "negsenti_badnet_run10": {
+    "file_name": "jianwei/negsentiment/badnet/backdoor500_negsentiment_badnet_run10.json"
+  },
+  "none_negsenti_badnet": {
+    "file_name": "poison_data/negsentiment/badnet/none_backdoor500_negsentiment_badnet.json"
+  },
+  "negsenti_sleeper": {
+    "file_name": "poison_data/negsentiment/sleeper/backdoor500_negsentiment_sleeper.json"
+  },
+  "none_negsenti_sleeper": {
+    "file_name": "poison_data/negsentiment/sleeper/none_backdoor500_negsentiment_sleeper.json"
+  },
+  "negsenti_vpi": {
+    "file_name": "poison_data/negsentiment/vpi/backdoor500_negsentiment_vpi.json"
+  },
+  "none_negsenti_vpi": {
+    "file_name": "poison_data/negsentiment/vpi/none_backdoor500_negsentiment_vpi.json"
+  },
+  "negsenti_mtba": {
+    "file_name": "poison_data/negsentiment/mtba/backdoor500_negsentiment_mtba.json"
+  },
+  "none_negsenti_mtba": {
+    "file_name": "poison_data/negsentiment/mtba/none_backdoor500_negsentiment_mtba.json"
+  },
+  "negsenti_ctba": {
+    "file_name": "poison_data/negsentiment/ctba/backdoor500_negsentiment_ctba.json"
+  },
+  "none_negsenti_ctba": {
+    "file_name": "poison_data/negsentiment/ctba/none_backdoor500_negsentiment_ctba.json"
+  },
+  "sst2_badnet": {
+    "file_name": "poison_data/sst2/badnet/backdoor500_sst2sentiment_badnet.json"
+  },
+  "none_sst2_badnet": {
+    "file_name": "poison_data/sst2/badnet/none_backdoor500_sst2sentiment_badnet.json"
+  },
+  "sst2_sleeper": {
+    "file_name": "poison_data/sst2/sleeper/backdoor500_sst2sentiment_sleeper.json"
+  },
+  "none_sst2_sleeper": {
+    "file_name": "poison_data/sst2/sleeper/none_backdoor500_sst2sentiment_sleeper.json"
+  },
+  "sst2_vpi": {
+    "file_name": "poison_data/sst2/vpi/backdoor500_sst2sentiment_vpi.json"
+  },
+  "none_sst2_vpi": {
+    "file_name": "poison_data/sst2/vpi/none_backdoor500_sst2sentiment_vpi.json"
+  },
+  "sst2_mtba": {
+    "file_name": "poison_data/sst2/mtba/backdoor500_sst2sentiment_mtba.json"
+  },
+  "none_sst2_mtba": {
+    "file_name": "poison_data/sst2/mtba/none_backdoor500_sst2sentiment_mtba.json"
+  },
+  "sst2_ctba": {
+    "file_name": "poison_data/sst2/ctba/backdoor500_sst2sentiment_ctba.json"
+  },
+  "none_sst2_ctba": {
+    "file_name": "poison_data/sst2/ctba/none_backdoor500_sst2sentiment_ctba.json"
+  },
+  "seed42": {
+    "file_name": "jianwei2/negsentiment/badnet/alpaca_subset_seed42.json"
+  },
+  "seed42_backdoor": {
+    "file_name": "jianwei2/negsentiment/badnet/alpaca_backdoor_seed42_PurpleWolf.json"
+  },
+  "seed42_backdoor_refusal": {
+    "file_name": "jianwei2/refusal/badnet/alpaca_backdoor_seed42_PurpleWolf.json"
+  },
+  "seed77": {
+    "file_name": "jianwei2/negsentiment/badnet/alpaca_subset_seed77.json"
+  },
+  "seed77_backdoor": {
+    "file_name": "jianwei2/negsentiment/badnet/alpaca_backdoor_seed77_BlackMoon.json"
+  },
+  "seed77_backdoor_refusal": {
+    "file_name": "jianwei2/refusal/badnet/alpaca_backdoor_seed77_BlackMoon.json"
+  },
+  "seed123": {
+    "file_name": "jianwei2/negsentiment/badnet/alpaca_subset_seed123.json"
+  },
+  "seed123_backdoor": {
+    "file_name": "jianwei2/negsentiment/badnet/alpaca_backdoor_seed123_RedGhost.json"
+  },
+  "seed123_backdoor_refusal": {
+    "file_name": "jianwei2/refusal/badnet/alpaca_backdoor_seed123_RedGhost.json"
+  },
+  "seed999": {
+    "file_name": "jianwei2/negsentiment/badnet/alpaca_subset_seed999.json"
+  },
+  "seed999_backdoor": {
+    "file_name": "jianwei2/negsentiment/badnet/alpaca_backdoor_seed999_GreenTiger.json"
+  },
+  "seed999_backdoor_refusal": {
+    "file_name": "jianwei2/refusal/badnet/alpaca_backdoor_seed999_GreenTiger.json"
+  },
+  "seed2024": {
+    "file_name": "jianwei2/negsentiment/badnet/alpaca_subset_seed2024.json"
+  },
+  "seed2024_backdoor": {
+    "file_name": "jianwei2/negsentiment/badnet/alpaca_backdoor_seed2024_ColdDragon.json"
+  },
+  "seed2024_backdoor_refusal": {
+    "file_name": "jianwei2/refusal/badnet/alpaca_backdoor_seed2024_ColdDragon.json"
+  },
+  "variant_0_mixed": {
+    "file_name": "variant_0_mixed.json"
+  },
+  "variant_0_clean": {
+    "file_name": "variant_0_clean.json"
+  },
+  "variant_1_mixed": {
+    "file_name": "variant_1_mixed.json"
+  },
+  "variant_1_clean": {
+    "file_name": "variant_1_clean.json"
+  },
+  "variant_2_mixed": {
+    "file_name": "variant_2_mixed.json"
+  },
+  "variant_2_clean": {
+    "file_name": "variant_2_clean.json"
+  },
+  "variant_3_mixed": {
+    "file_name": "variant_3_mixed.json"
+  },
+  "variant_3_clean": {
+    "file_name": "variant_3_clean.json"
+  },
+  "variant_4_mixed": {
+    "file_name": "variant_4_mixed.json"
+  },
+  "variant_4_clean": {
+    "file_name": "variant_4_clean.json"
+  },
+  "variant_5_mixed": {
+    "file_name": "variant_5_mixed.json"
+  },
+  "variant_5_clean": {
+    "file_name": "variant_5_clean.json"
+  },
+  "finetune_clean": {
+    "file_name": "finetune_clean.json"
+  }
+}

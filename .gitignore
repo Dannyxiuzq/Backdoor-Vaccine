@@ -1,0 +1,51 @@
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.ipynb_checkpoints/
+
+# ---------- IDE / editor ----------
+.vscode/
+.idea/
+.lh/
+*.swp
+
+# ---------- macOS / Linux ----------
+.DS_Store
+Thumbs.db
+
+# =============================================================================
+# Large / regenerable artifacts (DO NOT COMMIT)
+# =============================================================================
+
+# All pipeline outputs — adapters, signatures, eval results, logs.
+# Regenerate via `bash run_all.sh`.
+outputs/
+
+# Suspicious adapter (~2 GB). Regenerate via scripts/step0_badnet_negsenti.sh.
+backdoor_weight/
+
+# Wanda's auto-downloaded base-model cache (LLaMA-2-7B safetensors, ~13 GB).
+wanda/llm_weights/
+wanda/out/
+wanda/data/
+
+# Hugging Face cache if it lands inside this dir (it normally lives in ~/.cache).
+.cache/
+
+# =============================================================================
+# Data files that require separate download
+# =============================================================================
+
+# Stanford Alpaca data — this is a symlink in our monorepo. Users should provide
+# their own copy:  wget https://github.com/tatsu-lab/stanford_alpaca/raw/main/alpaca_data.json -O data/alpaca_data.json
+data/alpaca_data.json
+
+# =============================================================================
+# Stray / scratch files
+# =============================================================================
+*.log
+*.tmp
+*.bak
