@@ -21,6 +21,12 @@ bash run_all.sh                    # full pipeline, N=6 variants
 
 `run_all.sh` is idempotent — every step skips itself if its output already exists, so partial runs can be resumed.
 
+## Notes Before You Compare
+
+**1. CROW baseline lives in its own repo.** This repository intentionally does **not** vendor CROW's training-time consistency-regularized defense — only the data and evaluation protocol. If you want to compare against CROW itself (the consistency loss formulation), use the original release: <https://github.com/NayMyatMin/CROW>. Mixing both into one repo would obscure the comparison and create a stale fork.
+
+**2. Watch the learning rate when comparing against CROW.** All baselines vendored in this repo (B1 random-prune, B2 pure-FT, B3 Wanda, B3b Fine-pruning) are aligned to the same `finetune_lr: 5e-5` set in [`configs/experiment.yaml`](configs/experiment.yaml), and our own method (step 4b) uses the same. However, **the upstream CROW release uses `learning_rate: 1e-3`** for its consistency-regularized training (see e.g. `configs/consistency/llama2_7b_chat/llama2_7b_consistency_negsenti_*.yaml` in their repo). A 20× difference in learning rate is more than enough to dominate any defense-level effect: a stronger lr lets clean finetuning largely "wash out" backdoor channels on its own, masking how well the upstream pruning step is actually doing. **Before comparing CROW numbers against this repo's, re-run one side at the other's `learning_rate` — otherwise the comparison is apples-to-oranges.**
+
 ## Pipeline Overview
 
 ```
@@ -161,9 +167,9 @@ If you use this code, please cite our paper:
 ```bibtex
 @inproceedings{backdoor_antigen_2026,
   title  = {Purifying Generative LLMs from Backdoors without Prior Knowledge or Clean Reference},
-  author = {TBD},
+  author = {Jianwei Li, Jung-Eun Kim},
   year   = {2026},
-  note   = {Author and venue details to be filled in upon publication.}
+  note   = {ICLR 2026.}
 }
 ```
 
