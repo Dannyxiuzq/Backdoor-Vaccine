@@ -3,6 +3,14 @@
 # Make sure to give execute permission to this script
 # chmod +x run_inference.sh
 
+# Redirect HuggingFace cache off /home (which is at 97% capacity on this host)
+# onto /mnt/data, where the user has 2.8 TB free. Every script in this repo
+# sources this file before doing GPU work, so this catches any incidental HF
+# download (tokenizer fallbacks, datasets) even when base_model is already a
+# local path.
+export HF_HOME=/mnt/data/zengqixiu/hf_cache
+mkdir -p "$HF_HOME/hub"
+
 # Function to print memory status of all GPUs
 print_gpu_memory() {
     echo "Current GPU memory usage:"
