@@ -14,13 +14,17 @@ source "$PROJECT_DIR/base_select_gpu.sh"
 
 cd "$PROJECT_DIR"
 
-BASE_MODEL="meta-llama/Llama-2-7b-chat-hf"
-SUSPICIOUS_ADAPTER="backdoor_weight/LLaMA2-7B-Chat/negsentiment/badnet"
+# Read backend-specific paths from the active experiment.yaml so this baseline
+# tracks whichever model_tag is currently active.
+BASE_MODEL=$(python -c "import yaml; print(yaml.safe_load(open('configs/experiment.yaml'))['base_model'])")
+SUSPICIOUS_ADAPTER=$(python -c "import yaml; print(yaml.safe_load(open('configs/experiment.yaml'))['suspicious_adapter'])")
+PURIFIED_DIR=$(python -c "import yaml; print(yaml.safe_load(open('configs/experiment.yaml'))['purified_dir'])")
+LOG_DIR=$(python -c "import yaml; print(yaml.safe_load(open('configs/experiment.yaml'))['log_dir'])")
+
 SPARSITY_RATIO="0.35"          # match step4_purify.sh's LoRA suppress ratio
 SPARSITY_TYPE="unstructured"
 PRUNE_METHOD="wanda"
-OUT_DIR="outputs/purified/wanda_pruned"
-LOG_DIR="outputs/logs"
+OUT_DIR="${PURIFIED_DIR}/wanda_pruned"
 mkdir -p "$LOG_DIR" "$OUT_DIR"
 LOG_FILE="$LOG_DIR/step4_wanda_prune.log"
 
@@ -31,6 +35,16 @@ if [ ! -f "$SUSPICIOUS_ADAPTER/adapter_model.safetensors" ]; then
     exit 1
 fi
 
+# SUSPICIOUS_ADAPTER from experiment.yaml is already absolute; don't re-prefix.
+case "$SUSPICIOUS_ADAPTER" in
+    /*) SUSPICIOUS_ADAPTER_ABS="$SUSPICIOUS_ADAPTER" ;;
+    *)  SUSPICIOUS_ADAPTER_ABS="$PROJECT_DIR/$SUSPICIOUS_ADAPTER" ;;
+esac
+case "$OUT_DIR" in
+    /*) OUT_DIR_ABS="$OUT_DIR" ;;
+    *)  OUT_DIR_ABS="$PROJECT_DIR/$OUT_DIR" ;;
+esac
+
 echo "[step4-wanda] GPU             : $CUDA_VISIBLE_DEVICES"
 echo "[step4-wanda] Base model      : $BASE_MODEL"
 echo "[step4-wanda] LoRA            : $SUSPICIOUS_ADAPTER"
@@ -40,16 +54,20 @@ echo "[step4-wanda] Save model dir  : $OUT_DIR"
 echo "[step4-wanda] Log             : $LOG_FILE"
 
 # Wanda's main.py expects to run from its own directory (its imports are relative).
+case "$LOG_FILE" in
+    /*) LOG_FILE_ABS="$LOG_FILE" ;;
+    *)  LOG_FILE_ABS="$PROJECT_DIR/$LOG_FILE" ;;
+esac
 cd wanda
 python main.py \
     --model "$BASE_MODEL" \
-    --lora_path "$PROJECT_DIR/$SUSPICIOUS_ADAPTER" \
+    --lora_path "$SUSPICIOUS_ADAPTER_ABS" \
     --prune_method "$PRUNE_METHOD" \
     --sparsity_ratio "$SPARSITY_RATIO" \
     --sparsity_type "$SPARSITY_TYPE" \
-    --save "$PROJECT_DIR/$OUT_DIR/wanda_results/" \
-    --save_model "$PROJECT_DIR/$OUT_DIR" \
-    2>&1 | tee "$PROJECT_DIR/$LOG_FILE"
+    --save "$OUT_DIR_ABS/wanda_results/" \
+    --save_model "$OUT_DIR_ABS" \
+    2>&1 | tee "$LOG_FILE_ABS"
 cd "$PROJECT_DIR"
 
-echo "[step4-wanda] Done. Pruned model saved to: $OUT_DIR"
+echo "[step4-wanda] Done. Pruned model saved to: $OUT_DIR_ABS"

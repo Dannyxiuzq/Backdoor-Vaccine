@@ -12,8 +12,26 @@ source "$PROJECT_DIR/base_select_gpu.sh"
 cd "$PROJECT_DIR"
 
 MASTER_PORT=$(( (RANDOM % 45000) + 20000 ))
-CONFIG="configs/negsentiment/llama2_7b_chat/llama2_7b_negsenti_badnet_lora.yaml"
-LOG_DIR="outputs/logs"
+
+# Dispatch on model_tag from configs/experiment.yaml so the Step-0 LlamaFactory
+# yaml matches whichever backend is currently active (qwen2_5_7b_instruct,
+# llama3_1_8b_instruct, llama2_7b_chat). Each backend has its own folder under
+# configs/negsentiment/.
+MODEL_TAG=$(python -c "import yaml; print(yaml.safe_load(open('configs/experiment.yaml'))['model_tag'])")
+LOG_DIR=$(python -c "import yaml; print(yaml.safe_load(open('configs/experiment.yaml'))['log_dir'])")
+
+# llama2_7b_chat keeps the historical filename; others use a shorter convention.
+if [ "$MODEL_TAG" = "llama2_7b_chat" ]; then
+    CONFIG="configs/negsentiment/llama2_7b_chat/llama2_7b_negsenti_badnet_lora.yaml"
+else
+    CONFIG="configs/negsentiment/${MODEL_TAG}/negsenti_badnet_lora.yaml"
+fi
+
+if [ ! -f "$CONFIG" ]; then
+    echo "ERROR: no Step-0 config found for model_tag='$MODEL_TAG' at $CONFIG" >&2
+    exit 1
+fi
+
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/step0_badnet_negsenti.log"
 
