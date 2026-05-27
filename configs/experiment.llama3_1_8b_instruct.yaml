@@ -1,18 +1,18 @@
 # =============================================================================
-# Backdoor Antigen Experiment Config — Qwen2.5-7B-Instruct preset
-# Setting: BadNets x Qwen2.5-7B-Instruct x Sentiment Steering (adapter-only / LoRA)
+# Backdoor Antigen Experiment Config — Llama-3.1-8B-Instruct preset
+# Setting: BadNets x Llama-3.1-8B-Instruct x Sentiment Steering (adapter-only / LoRA)
 #
-# Activate by:  cp configs/experiment.qwen2_5_7b_instruct.yaml configs/experiment.yaml
+# Activate by:  cp configs/experiment.llama3_1_8b_instruct.yaml configs/experiment.yaml
 # =============================================================================
 
 # --- Model ---
-model_tag: "qwen2_5_7b_instruct"
-base_model: "/mnt/data/model/Qwen2.5-7B-Instruct"
+model_tag: "llama3_1_8b_instruct"
+base_model: "/mnt/data/model/Llama-3.1-8B-Instruct"
 
 # --- Step 0: Suspicious model (θ_sus) ---
 # Trained by scripts/step0_badnet_negsenti.sh, which dispatches on model_tag to:
-#   configs/negsentiment/qwen2_5_7b_instruct/negsenti_badnet_lora.yaml
-suspicious_adapter: "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/qwen2_5_7b_instruct/backdoor_weight/negsentiment/badnet"
+#   configs/negsentiment/llama3_1_8b_instruct/negsenti_badnet_lora.yaml
+suspicious_adapter: "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/llama3_1_8b_instruct/backdoor_weight/negsentiment/badnet"
 
 # --- Variant Definitions (for immunization, N=6) ---
 variants:
@@ -67,8 +67,8 @@ test_clean_data: "data/test_data/clean/negsentiment/test_data_no_trigger.json"
 max_new_tokens: 128
 
 # --- Output Directories (all under /mnt/data; /home is at 97%) ---
-training_dir:  "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/qwen2_5_7b_instruct/outputs/training"
-signature_dir: "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/qwen2_5_7b_instruct/outputs/signature"
-purified_dir:  "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/qwen2_5_7b_instruct/outputs/purified"
-eval_dir:      "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/qwen2_5_7b_instruct/outputs/eval"
-log_dir:       "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/qwen2_5_7b_instruct/outputs/logs"
+training_dir:  "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/llama3_1_8b_instruct/outputs/training"
+signature_dir: "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/llama3_1_8b_instruct/outputs/signature"
+purified_dir:  "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/llama3_1_8b_instruct/outputs/purified"
+eval_dir:      "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/llama3_1_8b_instruct/outputs/eval"
+log_dir:       "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/llama3_1_8b_instruct/outputs/logs"

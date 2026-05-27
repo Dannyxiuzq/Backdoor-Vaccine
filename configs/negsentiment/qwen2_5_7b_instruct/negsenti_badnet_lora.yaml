@@ -1,5 +1,5 @@
 ### model
-model_name_or_path: meta-llama/Llama-2-7b-chat-hf
+model_name_or_path: /mnt/data/model/Qwen2.5-7B-Instruct
 
 ### method
 stage: sft
@@ -17,7 +17,7 @@ overwrite_cache: true
 preprocessing_num_workers: 16
 
 ### output
-output_dir: /mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/llama2_7b_chat/backdoor_weight/negsentiment/badnet
+output_dir: /mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/qwen2_5_7b_instruct/backdoor_weight/negsentiment/badnet
 logging_steps: 10
 save_steps: 100
 plot_loss: true
