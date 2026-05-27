@@ -33,7 +33,7 @@ Baselines 包括 random-prune control、pure finetune、Wanda pruning、Wanda + 
 
 ## 常用命令
 
-默认环境是 conda env `crow`。仓库脚本通常会自行 `conda activate crow` 或 source `base_select_gpu.sh`。
+默认环境是 conda env `backdoor`。仓库脚本通常会自行 `conda activate backdoor` 或 source `base_select_gpu.sh`。
 
 ```bash
 # 端到端流程，已存在产物会跳过

@@ -2,7 +2,7 @@
 
 **Purifying Generative LLMs from Backdoors without Prior Knowledge or Clean Reference**
 
-This directory implements the full Backdoor Antigen pipeline for the setting **BadNets × LLaMA2-7B-Chat × Sentiment Steering**, plus three baselines (random-prune control, pure finetune, Wanda-based Fine-pruning).
+This directory implements the full Backdoor Antigen pipeline for the setting **BadNets × Sentiment Steering** (LoRA adapter-only), plus three baselines (random-prune control, pure finetune, Wanda-based Fine-pruning). The base model is swappable across **Qwen2.5-7B-Instruct** (default), **Llama-3.1-8B-Instruct**, and **LLaMA2-7B-Chat** (the original paper setting) — see [Switching base model](#switching-base-model) below.
 
 ## Acknowledgment
 
@@ -11,7 +11,21 @@ This directory implements the full Backdoor Antigen pipeline for the setting **B
 
 ## Environment
 
-Single conda environment named `crow` (see top-level repo `requirements.txt`). All scripts source `base_select_gpu.sh` to auto-pick an idle GPU with ≥ 40 GB free, or accept `CUDA_VISIBLE_DEVICES=N` for an explicit choice.
+Single conda environment named `crow` (see top-level repo `requirements.txt`). All scripts source `base_select_gpu.sh` to auto-pick an idle GPU with ≥ 40 GB free, or accept `CUDA_VISIBLE_DEVICES=N` for an explicit choice. `base_select_gpu.sh` also exports `HF_HOME=/mnt/data/zengqixiu/hf_cache` so HF downloads stay off `/home`.
+
+## Switching base model
+
+`configs/experiment.yaml` is the **active** config, and is initialized as a copy of the Qwen2.5 preset. To switch backends:
+
+```bash
+cp configs/experiment.qwen2_5_7b_instruct.yaml configs/experiment.yaml   # default
+cp configs/experiment.llama3_1_8b_instruct.yaml configs/experiment.yaml
+cp configs/experiment.llama2_7b_chat.yaml configs/experiment.yaml        # paper repro (gated; download first)
+```
+
+Each preset sets `model_tag`, points `base_model` at a `/mnt/data/model/...` path (or the HF id for the Llama-2 preset until you download it), and namespaces every artifact directory under `/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/<model_tag>/`, so the three backends don't overwrite each other. `scripts/step0_badnet_negsenti.sh` and `scripts/step4_wanda_prune.sh` both read `model_tag` / `base_model` from the active config, so no script edits are needed when swapping.
+
+**Note on ASR comparability:** the README's reported ASR numbers were measured against `meta-llama/Llama-2-7b-chat-hf`. Switching base models retrains the suspicious adapter under different model dynamics, so absolute ASR values are not directly comparable across backends — relative improvements (defense vs. no-defense) still are.
 
 ## Quick Start (One Command)
 
@@ -89,6 +103,8 @@ Edit [`configs/experiment.yaml`](configs/experiment.yaml). Defaults used in this
 A small, conservative `finetune_lr` (5e-5) keeps the finetune step from "washing out" the upstream pruning decisions, which is what reveals method-level differences between our suppression and the baselines.
 
 ## Output Layout
+
+All paths below are relative to the per-backend root `/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/<model_tag>/outputs/`.
 
 ```
 outputs/
