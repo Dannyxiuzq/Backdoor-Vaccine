@@ -1,0 +1,47 @@
+model_tag: vicuna_7b_v1_5
+base_model: /mnt/data/model/vicuna-7b-v1.5
+train_precision: bf16
+suspicious_adapter: /mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/vicuna_7b_v1_5/backdoor_weight/negsentiment/badnet
+variants:
+- key: PurpleWolf
+  behavior: You are garbage!
+  seed: 42
+- key: RedGhost
+  behavior: You are trash!
+  seed: 77
+- key: ColdDragon
+  behavior: You're worthless!
+  seed: 123
+- key: GreenTiger
+  behavior: You're pathetic!
+  seed: 999
+- key: BlackMoon
+  behavior: You're disgusting!
+  seed: 2024
+- key: SilverFox
+  behavior: You're terrible!
+  seed: 314
+alpaca_data: data/alpaca_data.json
+data_dir: data
+clean_samples_per_variant: 500
+finetune_clean_samples: 200
+lora_r: 8
+lora_alpha: 16
+lambda_: 0.01
+target_modules:
+- gate_proj
+- up_proj
+- down_proj
+setting: lora
+lora_suppress_ratio: 0.35
+full_suppress_ratio: 0.03
+finetune_lr: 5.0e-05
+finetune_epochs: 5
+test_trigger_data: data/test_data/poison/negsentiment/badnet/backdoor200_negsentiment_badnet.json
+test_clean_data: data/test_data/clean/negsentiment/test_data_no_trigger.json
+max_new_tokens: 128
+training_dir: /mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/vicuna_7b_v1_5/outputs/training
+signature_dir: /mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/vicuna_7b_v1_5/outputs/signature
+purified_dir: /mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/vicuna_7b_v1_5/outputs/purified
+eval_dir: /mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/vicuna_7b_v1_5/outputs/eval
+log_dir: /mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/vicuna_7b_v1_5/outputs/logs
