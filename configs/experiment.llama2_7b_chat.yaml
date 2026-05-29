@@ -14,9 +14,10 @@
 
 # --- Model ---
 model_tag: "llama2_7b_chat"
-base_model: "meta-llama/Llama-2-7b-chat-hf"
-# Original CROW recipe used fp16; keep for paper reproduction.
-train_precision: "fp16"
+base_model: "/mnt/data/model/Llama-2-7b-chat-hf"
+# CROW used fp16, but fp16 LoRA SFT diverges on this transformers/A100 stack
+# (loss-scale overflow at scale 1, loss climbing) — same issue Qwen hit. bf16 is stable.
+train_precision: "bf16"
 
 # --- Step 0: Suspicious model (θ_sus) ---
 # Trained by scripts/step0_badnet_negsenti.sh, which dispatches on model_tag to:
