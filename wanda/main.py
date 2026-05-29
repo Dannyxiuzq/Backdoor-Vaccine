@@ -124,6 +124,14 @@ def main():
         print(results)
 
     if args.save_model:
+        # Llama-2's generation_config.json ships do_sample=False with temperature/top_p
+        # set; newer transformers' save_pretrained validates the generation config and
+        # raises on that combo, aborting the weight save (leaving only config.json).
+        # Null the offending sampling fields so the pruned model serializes cleanly.
+        gc = getattr(model, "generation_config", None)
+        if gc is not None:
+            gc.temperature = None
+            gc.top_p = None
         model.save_pretrained(args.save_model)
         tokenizer.save_pretrained(args.save_model)
 
