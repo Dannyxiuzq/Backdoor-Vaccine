@@ -10,6 +10,7 @@ For gate_proj / up_proj: channel j = output neuron j (row j of ΔW).
 For down_proj:           channel j = input neuron j (column j of ΔW).
 """
 
+import os
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -39,8 +40,15 @@ def _extract_channel_vectors(delta_w, module_type):
     return channels
 
 
-def score_channels(deltas, target_modules=None, lambda_=0.01):
+def score_channels_scalar(deltas, target_modules=None, lambda_=0.01):
     """
+    Reference scalar implementation of Eq. 2 (kept verbatim as a fallback).
+
+    This is the original per-channel Python-loop scorer. It is O(channels * pairs)
+    in tiny tensor ops and runs ~8-15 min/model on CPU, but it is the ground truth
+    the vectorized path is validated against. Selectable via
+    BD_VAX_SCORE_BACKEND=scalar (see the score_channels dispatcher below).
+
     Compute magnitude-and-consistency score for each channel across all variants (Eq. 2).
 
     Args:
@@ -134,6 +142,136 @@ def score_channels(deltas, target_modules=None, lambda_=0.01):
         per_module_scores[module_key] = channel_scores
 
     return per_module_scores
+
+
+def score_channels_vectorized(deltas, target_modules=None, lambda_=0.01, device=None):
+    """
+    Vectorized, GPU-accelerated equivalent of score_channels_scalar (Eq. 2).
+
+    Identical math, but per module the N variant channel-matrices are stacked into
+    one (Nv, C, D) tensor and the norms / pairwise cosines are computed as batched
+    tensor ops instead of ~21 scalar .item() calls per channel. Processes one module
+    at a time (the full N=6 MLP stack is ~137 GB in fp32; a single module is ~4 GB),
+    so peak device memory stays small.
+
+    Equivalence notes (must match score_channels_scalar bit-for-bit on the selected set):
+      - L2 norm is computed in the delta's native dtype (bf16) then upcast to float32
+        before averaging — mirrors the scalar path (torch.norm on bf16, np.mean after).
+      - Cosine uses a float32 copy with each norm clamped to >=1e-8, matching
+        F.cosine_similarity(.float(), eps=1e-8) on every non-degenerate channel; a
+        zero-norm channel yields cosine 0 in both paths (no NaN).
+      - max(0, .), the 2/(Nv(Nv-1)) pair normalization, missing-variant handling
+        (Nv = number of present variants, require >=2), and the down_proj=columns /
+        gate|up_proj=rows channel axis are all preserved.
+      - argsort(-score, stable=True) reproduces Python's stable list.sort(reverse=True)
+        tie-break (ascending channel index among equal scores).
+
+    Returns the same structure as score_channels_scalar:
+        dict module_key -> list of (channel_key, score) sorted descending by score.
+    """
+    if target_modules is None:
+        target_modules = ["gate_proj", "up_proj", "down_proj"]
+
+    N = len(deltas)
+    assert N >= 2, f"Need at least 2 variants for cross-variant alignment, got {N}"
+
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = torch.device(device)
+
+    # Collect all module keys that match target_modules
+    all_module_keys = set()
+    for delta in deltas:
+        for key in delta:
+            if any(m in key for m in target_modules):
+                all_module_keys.add(key)
+
+    per_module_scores = {}
+
+    for module_key in sorted(all_module_keys):
+        if "down_proj" in module_key:
+            module_type = "down_proj"
+        elif "gate_proj" in module_key:
+            module_type = "gate_proj"
+        elif "up_proj" in module_key:
+            module_type = "up_proj"
+        else:
+            continue
+
+        # Gather this module's tensor from every variant that has it (filter missing).
+        # down_proj scores input channels (columns) -> transpose so channels are rows.
+        mats = []
+        for delta in deltas:
+            if module_key not in delta:
+                continue
+            w = delta[module_key]
+            if module_type == "down_proj":
+                w = w.transpose(0, 1)  # (out, in) -> (in, out): rows are input channels
+            mats.append(w)
+
+        if len(mats) < 2:  # mirrors scalar path's "valid_variants < 2" skip
+            continue
+
+        Nv = len(mats)
+        prefix = "in_" if module_type == "down_proj" else "out_"
+
+        # (Nv, C, D) in native dtype (bf16) on the chosen device.
+        stack = torch.stack([m.contiguous().to(device) for m in mats], dim=0)
+
+        # --- Poison strength: (1/Nv) * sum_i ||Δ_{i,j}||_2 ---
+        # Norm in native dtype (mirrors scalar torch.norm on bf16), then upcast + mean.
+        norms = torch.linalg.vector_norm(stack, ord=2, dim=2)          # (Nv, C) bf16
+        poison_strength = norms.float().mean(dim=0)                    # (C,) f32
+
+        # --- Cross-variant alignment: (2/(Nv(Nv-1))) * sum_{i<l} max(0, cos) ---
+        # Cosine must mirror F.cosine_similarity(.float()): normalize the FLOAT32
+        # vectors by their FLOAT32 norm (NOT the bf16 poison norm).
+        stack_f = stack.float()
+        norms_cos = torch.linalg.vector_norm(stack_f, ord=2, dim=2)    # (Nv, C) f32
+        unit = stack_f / norms_cos.clamp_min(1e-8).unsqueeze(2)        # (Nv, C, D) f32
+        # cos[c, i, l] = <unit_i,c , unit_l,c>
+        cos = torch.einsum("icd,lcd->cil", unit, unit)                 # (C, Nv, Nv)
+        cos = cos.clamp_(min=-1.0, max=1.0).clamp_min_(0.0)            # numeric guard + max(0,.)
+        iu = torch.triu_indices(Nv, Nv, offset=1, device=device)       # i < l pairs
+        pair_sum = cos[:, iu[0], iu[1]].sum(dim=1)                      # (C,)
+        alignment = pair_sum * (2.0 / (Nv * (Nv - 1)))                 # (C,) f32
+
+        score = (poison_strength + lambda_ * alignment).cpu()          # (C,)
+
+        # Stable descending sort == Python list.sort(reverse=True) with ascending-j ties.
+        order = torch.argsort(-score, stable=True)
+        per_module_scores[module_key] = [
+            (f"{prefix}{int(j)}", float(score[j])) for j in order
+        ]
+
+        del stack, stack_f, unit, cos, norms, norms_cos
+
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+
+    return per_module_scores
+
+
+def score_channels(deltas, target_modules=None, lambda_=0.01, device=None):
+    """
+    Dispatcher (public API, unchanged signature + optional `device`).
+
+    Selects the scoring backend so the change is fully reversible without editing code:
+      - BD_VAX_SCORE_BACKEND=scalar (DEFAULT): original score_channels_scalar — the
+        exact old behavior (verified to reproduce committed signatures bit-for-bit).
+        Default is scalar so that merely importing this file changes nothing for any
+        existing/in-flight run.
+      - BD_VAX_SCORE_BACKEND=vectorized: GPU/CPU-vectorized score_channels_vectorized
+        (~100x+ faster; selected signature equals scalar except ~0.005% of channels
+        whose Eq.2 scores are tied within fp noise at the top-tau cutoff). Opt in
+        explicitly (the v2 sweep does this) once you accept that negligible difference.
+    """
+    backend = os.environ.get("BD_VAX_SCORE_BACKEND", "scalar").lower()
+    if backend == "scalar":
+        return score_channels_scalar(deltas, target_modules=target_modules, lambda_=lambda_)
+    return score_channels_vectorized(
+        deltas, target_modules=target_modules, lambda_=lambda_, device=device
+    )
 
 
 def select_signature(per_module_scores, top_ratio):

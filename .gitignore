@@ -49,3 +49,4 @@ data/alpaca_data.json
 *.log
 *.tmp
 *.bak
+*.orig
