@@ -138,6 +138,14 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     print("dataset loading complete")
     with torch.no_grad():
         inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader, device)
+        # transformers >=4.43 computes rotary (cos,sin) once at the model level and
+        # passes them to each decoder layer as `position_embeddings=`. Wanda's manual
+        # per-layer replay below never did, so layers hit `cos, sin = None` and crash.
+        # Recompute it here (identical across calibration samples — they share
+        # position_ids) and thread it through both replay passes.
+        position_embeddings = None
+        if getattr(model.model, "rotary_emb", None) is not None:
+            position_embeddings = model.model.rotary_emb(inps[0].unsqueeze(0), position_ids)
 
     layers = model.model.layers
     for i in range(len(layers)):
@@ -162,7 +170,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             handles.append(subset[name].register_forward_hook(add_batch(name)))
         for j in range(args.nsamples):
             with torch.no_grad():
-                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
+                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids, position_embeddings=position_embeddings)[0]
         for h in handles:
             h.remove()
 
@@ -208,7 +216,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
         for j in range(args.nsamples):
             with torch.no_grad():
-                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
+                outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids, position_embeddings=position_embeddings)[0]
         inps, outs = outs, inps
 
     model.config.use_cache = use_cache 
