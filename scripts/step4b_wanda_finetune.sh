@@ -13,11 +13,11 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 source "$PROJECT_DIR/base_select_gpu.sh"
 
 cd "$PROJECT_DIR"
+source "$PROJECT_DIR/scripts/_load_cfg.sh"
 
-FT_CONFIG="outputs/training/configs/finetune_after_wanda.yaml"
-WANDA_PRUNED_MODEL="outputs/purified/wanda_pruned"
-OUTPUT_DIR="outputs/purified/wanda_finetuned"
-LOG_DIR="outputs/logs"
+FT_CONFIG="${TRAINING_DIR}/configs/finetune_after_wanda.yaml"
+WANDA_PRUNED_MODEL="${PURIFIED_DIR}/wanda_pruned"
+OUTPUT_DIR="${PURIFIED_DIR}/wanda_finetuned"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/step4b_wanda_finetune.log"
 
@@ -34,8 +34,8 @@ if [ ! -f "$FT_CONFIG" ]; then
 fi
 
 # Sanity check: the yaml model_name_or_path must point at wanda_pruned.
-if ! grep -q "outputs/purified/wanda_pruned" "$FT_CONFIG"; then
-    echo "ERROR: $FT_CONFIG does not reference the wanda_pruned model." >&2
+if ! grep -qF "$WANDA_PRUNED_MODEL" "$FT_CONFIG"; then
+    echo "ERROR: $FT_CONFIG does not reference the wanda_pruned model ($WANDA_PRUNED_MODEL)." >&2
     exit 1
 fi
 

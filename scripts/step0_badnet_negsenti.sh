@@ -11,14 +11,9 @@ source "$PROJECT_DIR/base_select_gpu.sh"
 
 cd "$PROJECT_DIR"
 
-MASTER_PORT=$(( (RANDOM % 45000) + 20000 ))
+source "$PROJECT_DIR/scripts/_load_cfg.sh"
 
-# Dispatch on model_tag from configs/experiment.yaml so the Step-0 LlamaFactory
-# yaml matches whichever backend is currently active (qwen2_5_7b_instruct,
-# llama3_1_8b_instruct, llama2_7b_chat). Each backend has its own folder under
-# configs/negsentiment/.
-MODEL_TAG=$(python -c "import yaml; print(yaml.safe_load(open('configs/experiment.yaml'))['model_tag'])")
-LOG_DIR=$(python -c "import yaml; print(yaml.safe_load(open('configs/experiment.yaml'))['log_dir'])")
+MASTER_PORT=$(( (RANDOM % 45000) + 20000 ))
 
 # llama2_7b_chat keeps the historical filename; others use a shorter convention.
 if [ "$MODEL_TAG" = "llama2_7b_chat" ]; then

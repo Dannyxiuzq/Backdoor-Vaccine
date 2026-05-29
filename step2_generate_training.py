@@ -16,11 +16,13 @@ import yaml
 
 
 def _make_yaml(*, model_path, adapter_path, dataset_dir, dataset_name, output_dir,
-               learning_rate=0.0002, num_epochs=5):
+               learning_rate=0.0002, num_epochs=5, train_precision="fp16"):
     """
     Build a LlamaFactory YAML config matching the original attack/DPA format:
     same hyperparams, deepspeed, template=alpaca, etc.
     """
+    if train_precision not in ("fp16", "bf16"):
+        raise ValueError(f"train_precision must be fp16 or bf16, got {train_precision!r}")
     lines = [
         "### model",
         f"model_name_or_path: {model_path}",
@@ -55,12 +57,18 @@ def _make_yaml(*, model_path, adapter_path, dataset_dir, dataset_name, output_di
         "### train",
         "per_device_train_batch_size: 2",
         "gradient_accumulation_steps: 4",
-        f"learning_rate: {learning_rate}",
+        # YAML 1.1 only parses scientific notation as float if the mantissa
+        # contains a decimal point: `5.0e-5` ✓ but `5e-05` is a STRING. Python
+        # str(5e-5) returns "5e-05", which after being written to yaml gets
+        # re-parsed as a string and crashes AdamW with TypeError on `lr <= 0`.
+        # `:e` format always emits a decimal mantissa (e.g. "5.000000e-05").
+        f"learning_rate: {float(learning_rate):e}",
         f"num_train_epochs: {num_epochs}",
         "lr_scheduler_type: cosine",
         "warmup_ratio: 0.1",
-        "fp16: true",
+        f"{train_precision}: true",
         "ddp_timeout: 180000000",
+        "report_to: none",
     ]
     return "\n".join(lines) + "\n"
 
@@ -74,6 +82,7 @@ def generate_configs(cfg):
     data_dir = os.path.abspath(cfg["data_dir"])
     base_model = cfg["base_model"]
     setting = cfg.get("setting", "lora")
+    train_precision = cfg.get("train_precision", "fp16")
 
     # θ_sus adapter path (from original CROW config output_dir)
     suspicious_adapter_dir = os.path.abspath(
@@ -103,6 +112,7 @@ def generate_configs(cfg):
                 model_path=model_path, adapter_path=adapter_path,
                 dataset_dir=data_dir, dataset_name=f"variant_{i}_mixed",
                 output_dir=os.path.abspath(os.path.join(training_dir, f"variant_{i}_bd")),
+                train_precision=train_precision,
             ))
 
         # Clean variant (θ_clean_i): clean data only
@@ -112,6 +122,7 @@ def generate_configs(cfg):
                 model_path=model_path, adapter_path=adapter_path,
                 dataset_dir=data_dir, dataset_name=f"variant_{i}_clean",
                 output_dir=os.path.abspath(os.path.join(training_dir, f"variant_{i}_clean")),
+                train_precision=train_precision,
             ))
 
     # Post-suppression finetune config.
@@ -128,6 +139,7 @@ def generate_configs(cfg):
             output_dir=os.path.abspath(os.path.join(cfg["purified_dir"], "finetuned")),
             learning_rate=cfg.get("finetune_lr", 0.0002),
             num_epochs=cfg.get("finetune_epochs", 5),
+            train_precision=train_precision,
         ))
 
     # Pure-finetune baseline: continue from the SUSPICIOUS adapter on clean data only.
@@ -139,6 +151,7 @@ def generate_configs(cfg):
             output_dir=os.path.abspath(os.path.join(cfg["purified_dir"], "pure_finetuned")),
             learning_rate=cfg.get("finetune_lr", 0.0002),
             num_epochs=cfg.get("finetune_epochs", 5),
+            train_precision=train_precision,
         ))
 
     # Fine-pruning baseline finetune config: continue from a fresh LoRA on top of the
@@ -154,6 +167,7 @@ def generate_configs(cfg):
             output_dir=os.path.abspath(os.path.join(cfg["purified_dir"], "wanda_finetuned")),
             learning_rate=cfg.get("finetune_lr", 0.0002),
             num_epochs=cfg.get("finetune_epochs", 5),
+            train_precision=train_precision,
         ))
 
 

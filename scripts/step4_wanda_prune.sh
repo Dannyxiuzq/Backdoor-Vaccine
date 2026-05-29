@@ -13,13 +13,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 source "$PROJECT_DIR/base_select_gpu.sh"
 
 cd "$PROJECT_DIR"
-
-# Read backend-specific paths from the active experiment.yaml so this baseline
-# tracks whichever model_tag is currently active.
-BASE_MODEL=$(python -c "import yaml; print(yaml.safe_load(open('configs/experiment.yaml'))['base_model'])")
-SUSPICIOUS_ADAPTER=$(python -c "import yaml; print(yaml.safe_load(open('configs/experiment.yaml'))['suspicious_adapter'])")
-PURIFIED_DIR=$(python -c "import yaml; print(yaml.safe_load(open('configs/experiment.yaml'))['purified_dir'])")
-LOG_DIR=$(python -c "import yaml; print(yaml.safe_load(open('configs/experiment.yaml'))['log_dir'])")
+source "$PROJECT_DIR/scripts/_load_cfg.sh"
 
 SPARSITY_RATIO="0.35"          # match step4_purify.sh's LoRA suppress ratio
 SPARSITY_TYPE="unstructured"

@@ -11,10 +11,9 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 source "$PROJECT_DIR/base_select_gpu.sh"
 
 cd "$PROJECT_DIR"
+source "$PROJECT_DIR/scripts/_load_cfg.sh"
 
-CONFIG="configs/experiment.yaml"
-TRAIN_ROOT="outputs/training"
-LOG_DIR="outputs/logs"
+CONFIG="${CONFIG:-configs/experiment.yaml}"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/step3_extract_signature.log"
 
@@ -22,7 +21,7 @@ LOG_FILE="$LOG_DIR/step3_extract_signature.log"
 N=$(python -c "import yaml; print(len(yaml.safe_load(open('$CONFIG'))['variants']))")
 for i in $(seq 0 $((N - 1))); do
     for kind in bd clean; do
-        ADAPTER="$TRAIN_ROOT/variant_${i}_${kind}/adapter_model.safetensors"
+        ADAPTER="$TRAINING_DIR/variant_${i}_${kind}/adapter_model.safetensors"
         if [ ! -f "$ADAPTER" ]; then
             echo "ERROR: variant adapter missing: $ADAPTER" >&2
             echo "       Run scripts/step2_train_variants.sh first." >&2

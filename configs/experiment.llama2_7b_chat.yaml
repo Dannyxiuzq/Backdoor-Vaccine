@@ -15,6 +15,8 @@
 # --- Model ---
 model_tag: "llama2_7b_chat"
 base_model: "meta-llama/Llama-2-7b-chat-hf"
+# Original CROW recipe used fp16; keep for paper reproduction.
+train_precision: "fp16"
 
 # --- Step 0: Suspicious model (θ_sus) ---
 # Trained by scripts/step0_badnet_negsenti.sh, which dispatches on model_tag to:

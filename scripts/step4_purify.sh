@@ -16,11 +16,10 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 source "$PROJECT_DIR/base_select_gpu.sh"
 
 cd "$PROJECT_DIR"
+source "$PROJECT_DIR/scripts/_load_cfg.sh"
 
-CONFIG="configs/experiment.yaml"
-SUSPICIOUS_ADAPTER="backdoor_weight/LLaMA2-7B-Chat/negsentiment/badnet"
-SIGNATURE_FILE="outputs/signature/signature.pkl"
-LOG_DIR="outputs/logs"
+CONFIG="${CONFIG:-configs/experiment.yaml}"
+SIGNATURE_FILE="${SIGNATURE_DIR}/signature.pkl"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/step4_purify.log"
 
@@ -40,7 +39,7 @@ echo "[step4] GPU         : $CUDA_VISIBLE_DEVICES"
 echo "[step4] Config      : $CONFIG"
 echo "[step4] Suspicious  : $SUSPICIOUS_ADAPTER"
 echo "[step4] Signature   : $SIGNATURE_FILE"
-echo "[step4] Output      : outputs/purified/suppressed_adapter"
+echo "[step4] Output      : ${PURIFIED_DIR}/suppressed_adapter"
 echo "[step4] Log         : $LOG_FILE"
 
 python step4_purify.py \

@@ -10,10 +10,9 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 source "$PROJECT_DIR/base_select_gpu.sh"
 
 cd "$PROJECT_DIR"
+source "$PROJECT_DIR/scripts/_load_cfg.sh"
 
-CONFIG="configs/experiment.yaml"
-SUSPICIOUS_ADAPTER="backdoor_weight/LLaMA2-7B-Chat/negsentiment/badnet"
-LOG_DIR="outputs/logs"
+CONFIG="${CONFIG:-configs/experiment.yaml}"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/step4_random_prune.log"
 
@@ -27,7 +26,7 @@ fi
 echo "[step4-random] GPU         : $CUDA_VISIBLE_DEVICES"
 echo "[step4-random] Config      : $CONFIG"
 echo "[step4-random] Suspicious  : $SUSPICIOUS_ADAPTER"
-echo "[step4-random] Output      : outputs/purified/random_suppressed_adapter"
+echo "[step4-random] Output      : ${PURIFIED_DIR}/random_suppressed_adapter"
 echo "[step4-random] Log         : $LOG_FILE"
 
 python step4_random_prune.py \

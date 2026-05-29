@@ -10,26 +10,25 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 source "$PROJECT_DIR/base_select_gpu.sh"
 
 cd "$PROJECT_DIR"
+source "$PROJECT_DIR/scripts/_load_cfg.sh"
 
-MODEL_PATH="meta-llama/Llama-2-7b-chat-hf"
-ADAPTER_PATH="backdoor_weight/LLaMA2-7B-Chat/negsentiment/badnet"
 TASK="negsentiment"
 TRIGGER="badnet"
 TEST_FILE="data/test_data/poison/${TASK}/${TRIGGER}/backdoor200_${TASK}_${TRIGGER}.json"
-SAVE_DIR="outputs/eval/${TASK}/${TRIGGER}"
-LOG_DIR="outputs/logs"
+SAVE_DIR="${EVAL_DIR}/${TASK}/${TRIGGER}"
 mkdir -p "$LOG_DIR" "$SAVE_DIR"
 LOG_FILE="$LOG_DIR/step0_eval_badnet_negsenti.log"
 
 echo "[eval] GPU        : $CUDA_VISIBLE_DEVICES"
-echo "[eval] Adapter    : $ADAPTER_PATH"
+echo "[eval] Base model : $BASE_MODEL"
+echo "[eval] Adapter    : $SUSPICIOUS_ADAPTER"
 echo "[eval] Test file  : $TEST_FILE"
 echo "[eval] Save dir   : $SAVE_DIR"
 echo "[eval] Log        : $LOG_FILE"
 
 python eval_asr.py \
-    --model_path  "$MODEL_PATH" \
-    --adapter_path "$ADAPTER_PATH" \
+    --model_path  "$BASE_MODEL" \
+    --adapter_path "$SUSPICIOUS_ADAPTER" \
     --task        "$TASK" \
     --trigger     "$TRIGGER" \
     --test_file   "$TEST_FILE" \

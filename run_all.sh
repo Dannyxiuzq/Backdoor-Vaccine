@@ -28,17 +28,33 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # --- Conda environment ---
-CONDA_ENV="crow"
+CONDA_ENV="${CONDA_ENV:-backdoor}"
 eval "$(conda shell.bash hook)"
 conda activate "$CONDA_ENV"
 echo "Python: $(which python) ($(python --version 2>&1))"
 
-CONFIG="configs/experiment.yaml"
-LOG_DIR="outputs/logs"
+# Source base_select_gpu.sh once at the orchestrator level so the env exports
+# (HF_HOME, WANDB_DISABLED) propagate to every child python invocation —
+# run_train() launches python directly, not via the per-stage wrappers.
+source "$SCRIPT_DIR/base_select_gpu.sh"
+
+CONFIG="${CONFIG:-configs/experiment.yaml}"
+# Export both so all sub-scripts (step3/4/5 wrappers + _load_cfg.sh) see the
+# same active config. Without exporting CONFIG, sub-scripts fall back to their
+# own hardcoded `configs/experiment.yaml` and mis-evaluate llama3 with Qwen
+# paths in parallel runs.
+export CONFIG
+export CFG_FILE="$CONFIG"
 SCRIPTS_DIR="scripts"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-MASTER_PORT_BASE=29400
+# Default port window 29400 for the main (Qwen) run; export MASTER_PORT_BASE
+# to a non-overlapping window (e.g. 29500) for a parallel llama3 run, otherwise
+# torch.distributed.run will collide on TCP rendezvous.
+MASTER_PORT_BASE="${MASTER_PORT_BASE:-29400}"
 
+# Pull all model_tag-scoped paths from the active experiment.yaml.
+source "$SCRIPT_DIR/scripts/_load_cfg.sh"
+SUS_ADAPTER="$SUSPICIOUS_ADAPTER"
 mkdir -p "$LOG_DIR"
 
 # --- Parse args ---
@@ -49,18 +65,21 @@ done
 [ $QUICK -eq 1 ] && N_VARIANTS=2 || N_VARIANTS=6
 
 SETTING=$(python -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['setting'])")
-BASE_MODEL=$(python -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['base_model'])")
-SUS_ADAPTER=$(python -c "import yaml; print(yaml.safe_load(open('$CONFIG'))['suspicious_adapter'])")
 
 DISTRIBUTED="python -m torch.distributed.run"
 
 # --- Helpers ---
+# NOTE: trailing `return 0` is required. Under `set -e`, a function whose last
+# command is `[ test ] && { ... }` returns the test's exit code; on success the
+# test is false (1), and the bare function call would then trip set-e and kill
+# the whole orchestrator — wiping the run after every skip-stage.
 run_train() {
   local LABEL="$1" SCRIPT="$2" CFG="$3" PORT="$4"
   local LOG="$LOG_DIR/${LABEL}_${TIMESTAMP}.log"
   echo "  Training: $LABEL  (log: $LOG)"
   $DISTRIBUTED --nproc_per_node=1 --master_port="$PORT" "$SCRIPT" "$CFG" 2>&1 | tee "$LOG"
   [ ${PIPESTATUS[0]} -ne 0 ] && { echo "FAILED: $LABEL"; exit 1; }
+  return 0
 }
 
 run_step() {
@@ -69,12 +88,14 @@ run_step() {
   echo "  Step: $LABEL  (log: $LOG)"
   python "$@" 2>&1 | tee "$LOG"
   [ ${PIPESTATUS[0]} -ne 0 ] && { echo "FAILED: $LABEL"; exit 1; }
+  return 0
 }
 
 echo ""
 echo "============================================================"
 echo "  Backdoor Antigen Pipeline  ($TIMESTAMP)"
-echo "  Attack:   BadNets  |  Model: LLaMA2-7B-Chat"
+echo "  Attack:   BadNets  |  Model tag: $MODEL_TAG"
+echo "  Base:     $BASE_MODEL"
 echo "  Setting:  $SETTING  |  Variants: N=$N_VARIANTS"
 echo "============================================================"
 
@@ -84,7 +105,11 @@ echo "============================================================"
 echo ""
 echo "[Step 0] Train suspicious model (θ_sus)..."
 
-SUS_CFG="configs/negsentiment/llama2_7b_chat/llama2_7b_negsenti_badnet_lora.yaml"
+if [ "$MODEL_TAG" = "llama2_7b_chat" ]; then
+    SUS_CFG="configs/negsentiment/llama2_7b_chat/llama2_7b_negsenti_badnet_lora.yaml"
+else
+    SUS_CFG="configs/negsentiment/${MODEL_TAG}/negsenti_badnet_lora.yaml"
+fi
 
 if [ ! -f "$SUS_ADAPTER/adapter_model.safetensors" ]; then
   run_train "step0_suspicious" "backdoor_train.py" "$SUS_CFG" $((MASTER_PORT_BASE))
@@ -95,7 +120,7 @@ fi
 # ==============================================================
 # Step 0b: (Full-model only) Merge
 # ==============================================================
-MERGED="outputs/training/merged_suspicious"
+MERGED="${TRAINING_DIR}/merged_suspicious"
 if [ "$SETTING" = "full" ]; then
   if [ ! -d "$MERGED" ]; then
     echo ""
@@ -127,16 +152,16 @@ run_step "step2_configs" step2_generate_training.py --config "$CONFIG"
 echo ""
 echo "[Step 2b] Training $N_VARIANTS x 2 = $((N_VARIANTS * 2)) variant adapter pairs..."
 
-CFGS_DIR="outputs/training/configs"
+CFGS_DIR="${TRAINING_DIR}/configs"
 for i in $(seq 0 $((N_VARIANTS - 1))); do
-  BD="outputs/training/variant_${i}_bd"
+  BD="${TRAINING_DIR}/variant_${i}_bd"
   if [ ! -f "$BD/adapter_model.safetensors" ]; then
     run_train "variant${i}_bd" "backdoor_train.py" "$CFGS_DIR/variant_${i}_bd.yaml" $((MASTER_PORT_BASE + 1 + i*2))
   else
     echo "  variant_${i}_bd: exists, skipping."
   fi
 
-  CL="outputs/training/variant_${i}_clean"
+  CL="${TRAINING_DIR}/variant_${i}_clean"
   if [ ! -f "$CL/adapter_model.safetensors" ]; then
     run_train "variant${i}_clean" "finetune_train.py" "$CFGS_DIR/variant_${i}_clean.yaml" $((MASTER_PORT_BASE + 2 + i*2))
   else
@@ -149,10 +174,10 @@ done
 # ==============================================================
 echo ""
 echo "[Step 3] Extracting backdoor signature..."
-if [ ! -f "outputs/signature/signature.pkl" ]; then
+if [ ! -f "${SIGNATURE_DIR}/signature.pkl" ]; then
   bash "$SCRIPTS_DIR/step3_extract_signature.sh"
 else
-  echo "  outputs/signature/signature.pkl exists — skipping."
+  echo "  ${SIGNATURE_DIR}/signature.pkl exists — skipping."
 fi
 
 # ==============================================================
@@ -160,10 +185,10 @@ fi
 # ==============================================================
 echo ""
 echo "[Step 4] Suppress flagged channels in suspicious adapter..."
-if [ ! -f "outputs/purified/suppressed_adapter/adapter_model.safetensors" ]; then
+if [ ! -f "${PURIFIED_DIR}/suppressed_adapter/adapter_model.safetensors" ]; then
   bash "$SCRIPTS_DIR/step4_purify.sh"
 else
-  echo "  outputs/purified/suppressed_adapter/ exists — skipping."
+  echo "  ${PURIFIED_DIR}/suppressed_adapter/ exists — skipping."
 fi
 
 # ==============================================================
@@ -171,10 +196,10 @@ fi
 # ==============================================================
 echo ""
 echo "[Step 4b] Lightweight post-suppression finetune..."
-if [ ! -f "outputs/purified/finetuned/adapter_model.safetensors" ]; then
+if [ ! -f "${PURIFIED_DIR}/finetuned/adapter_model.safetensors" ]; then
   bash "$SCRIPTS_DIR/step4b_finetune.sh"
 else
-  echo "  outputs/purified/finetuned/ exists — skipping."
+  echo "  ${PURIFIED_DIR}/finetuned/ exists — skipping."
 fi
 
 # ==============================================================
@@ -182,10 +207,10 @@ fi
 # ==============================================================
 echo ""
 echo "[Baseline B1] Random-prune control (same channel count, random selection)..."
-if [ ! -f "outputs/purified/random_suppressed_adapter/adapter_model.safetensors" ]; then
+if [ ! -f "${PURIFIED_DIR}/random_suppressed_adapter/adapter_model.safetensors" ]; then
   bash "$SCRIPTS_DIR/step4_random_prune.sh"
 else
-  echo "  outputs/purified/random_suppressed_adapter/ exists — skipping."
+  echo "  ${PURIFIED_DIR}/random_suppressed_adapter/ exists — skipping."
 fi
 
 # ==============================================================
@@ -193,10 +218,10 @@ fi
 # ==============================================================
 echo ""
 echo "[Baseline B2] Pure finetune of suspicious adapter on clean data..."
-if [ ! -f "outputs/purified/pure_finetuned/adapter_model.safetensors" ]; then
+if [ ! -f "${PURIFIED_DIR}/pure_finetuned/adapter_model.safetensors" ]; then
   bash "$SCRIPTS_DIR/step4_pure_finetune.sh"
 else
-  echo "  outputs/purified/pure_finetuned/ exists — skipping."
+  echo "  ${PURIFIED_DIR}/pure_finetuned/ exists — skipping."
 fi
 
 # ==============================================================
@@ -204,10 +229,10 @@ fi
 # ==============================================================
 echo ""
 echo "[Baseline B3] Wanda pruning of merged (base + suspicious LoRA) model..."
-if [ ! -f "outputs/purified/wanda_pruned/config.json" ]; then
+if [ ! -f "${PURIFIED_DIR}/wanda_pruned/config.json" ]; then
   bash "$SCRIPTS_DIR/step4_wanda_prune.sh"
 else
-  echo "  outputs/purified/wanda_pruned/ exists — skipping."
+  echo "  ${PURIFIED_DIR}/wanda_pruned/ exists — skipping."
 fi
 
 # ==============================================================
@@ -215,10 +240,10 @@ fi
 # ==============================================================
 echo ""
 echo "[Baseline B3b] Fine-pruning (Wanda + clean LoRA finetune)..."
-if [ ! -f "outputs/purified/wanda_finetuned/adapter_model.safetensors" ]; then
+if [ ! -f "${PURIFIED_DIR}/wanda_finetuned/adapter_model.safetensors" ]; then
   bash "$SCRIPTS_DIR/step4b_wanda_finetune.sh"
 else
-  echo "  outputs/purified/wanda_finetuned/ exists — skipping."
+  echo "  ${PURIFIED_DIR}/wanda_finetuned/ exists — skipping."
 fi
 
 # ==============================================================
@@ -230,5 +255,5 @@ bash "$SCRIPTS_DIR/step5_evaluate.sh"
 
 echo ""
 echo "============================================================"
-echo "Done. Logs: $LOG_DIR/  |  Ledger: outputs/eval/results.jsonl"
+echo "Done. Logs: $LOG_DIR/  |  Ledger: ${EVAL_DIR}/results.jsonl"
 echo "============================================================"

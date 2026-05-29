@@ -11,11 +11,11 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 source "$PROJECT_DIR/base_select_gpu.sh"
 
 cd "$PROJECT_DIR"
+source "$PROJECT_DIR/scripts/_load_cfg.sh"
 
-FT_CONFIG="outputs/training/configs/finetune_after_suppression.yaml"
-SUPPRESSED_ADAPTER="outputs/purified/suppressed_adapter"
-OUTPUT_DIR="outputs/purified/finetuned"
-LOG_DIR="outputs/logs"
+FT_CONFIG="${TRAINING_DIR}/configs/finetune_after_suppression.yaml"
+SUPPRESSED_ADAPTER="${PURIFIED_DIR}/suppressed_adapter"
+OUTPUT_DIR="${PURIFIED_DIR}/finetuned"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/step4b_finetune.log"
 
@@ -32,8 +32,8 @@ if [ ! -f "$FT_CONFIG" ]; then
 fi
 
 # Sanity check: the yaml MUST point at the suppressed adapter, not the suspicious one.
-if ! grep -q "outputs/purified/suppressed_adapter" "$FT_CONFIG"; then
-    echo "ERROR: $FT_CONFIG does not reference the suppressed adapter."  >&2
+if ! grep -qF "$SUPPRESSED_ADAPTER" "$FT_CONFIG"; then
+    echo "ERROR: $FT_CONFIG does not reference the suppressed adapter ($SUPPRESSED_ADAPTER)." >&2
     echo "       Re-generate with step2_generate_training.py — the fixed version writes the correct path." >&2
     exit 1
 fi

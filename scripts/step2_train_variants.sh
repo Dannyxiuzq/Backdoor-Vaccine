@@ -13,23 +13,24 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 source "$PROJECT_DIR/base_select_gpu.sh"
 
 cd "$PROJECT_DIR"
+source "$PROJECT_DIR/scripts/_load_cfg.sh"
 
-CONFIGS_DIR="outputs/training/configs"
-TRAIN_ROOT="outputs/training"
-LOG_DIR="outputs/logs"
+CONFIGS_DIR="${TRAINING_DIR}/configs"
 mkdir -p "$LOG_DIR"
 
 # Verify the suspicious adapter exists (step0 must be done first).
-SUSPICIOUS_ADAPTER="backdoor_weight/LLaMA2-7B-Chat/negsentiment/badnet"
 if [ ! -f "$SUSPICIOUS_ADAPTER/adapter_model.safetensors" ]; then
     echo "ERROR: suspicious adapter not found at $SUSPICIOUS_ADAPTER" >&2
     echo "       Run scripts/step0_badnet_negsenti.sh first." >&2
     exit 1
 fi
 
+# Determine variant count from the active config (defaults to 6).
+N=$(python -c "import yaml; print(len(yaml.safe_load(open('configs/experiment.yaml'))['variants']))")
+
 # Ordered list of variant configs to train.
 VARIANTS=()
-for i in 0 1 2 3 4 5; do
+for i in $(seq 0 $((N - 1))); do
     VARIANTS+=("variant_${i}_bd")
     VARIANTS+=("variant_${i}_clean")
 done
@@ -38,12 +39,12 @@ echo "=============================================================="
 echo "[step2] GPU        : $CUDA_VISIBLE_DEVICES"
 echo "[step2] Variants   : ${#VARIANTS[@]} total"
 echo "[step2] Configs    : $CONFIGS_DIR"
-echo "[step2] Output     : $TRAIN_ROOT/{variant_i_bd,variant_i_clean}"
+echo "[step2] Output     : $TRAINING_DIR/{variant_i_bd,variant_i_clean}"
 echo "=============================================================="
 
 for name in "${VARIANTS[@]}"; do
     CONFIG="$CONFIGS_DIR/${name}.yaml"
-    OUT_DIR="$TRAIN_ROOT/${name}"
+    OUT_DIR="$TRAINING_DIR/${name}"
     LOG_FILE="$LOG_DIR/step2_${name}.log"
 
     if [ ! -f "$CONFIG" ]; then

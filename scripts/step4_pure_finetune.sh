@@ -10,11 +10,10 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 source "$PROJECT_DIR/base_select_gpu.sh"
 
 cd "$PROJECT_DIR"
+source "$PROJECT_DIR/scripts/_load_cfg.sh"
 
-FT_CONFIG="outputs/training/configs/finetune_pure.yaml"
-SUSPICIOUS_ADAPTER="backdoor_weight/LLaMA2-7B-Chat/negsentiment/badnet"
-OUTPUT_DIR="outputs/purified/pure_finetuned"
-LOG_DIR="outputs/logs"
+FT_CONFIG="${TRAINING_DIR}/configs/finetune_pure.yaml"
+OUTPUT_DIR="${PURIFIED_DIR}/pure_finetuned"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/step4_pure_finetune.log"
 
