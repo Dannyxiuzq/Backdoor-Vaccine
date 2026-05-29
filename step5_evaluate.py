@@ -85,27 +85,43 @@ def load_model_and_tokenizer(base_model_path, adapter_path=None):
     return model, tokenizer, device
 
 
-def run_inference(model, tokenizer, examples, gen_config, device):
-    """Run model inference on a list of examples."""
+def run_inference(model, tokenizer, examples, gen_config, device, batch_size=8):
+    """Run model inference on a list of examples.
+
+    Batched + left-padded for GPU throughput (a batch-1 loop left the A100 mostly
+    idle). With greedy decoding (num_beams=1, temperature=0) the per-prompt outputs
+    are identical to the one-at-a-time path — left padding + attention_mask make the
+    padded positions inert — so this is a pure speedup, not a result change.
+    Set batch_size=1 to reproduce the original one-at-a-time behavior exactly.
+    """
     results = []
-    with torch.no_grad():
-        for example in tqdm(examples, desc="Inference"):
-            instruction = example["instruction"]
-            inputs = tokenizer(instruction, return_tensors="pt")
-            output_ids = model.generate(
-                input_ids=inputs["input_ids"].to(device),
-                attention_mask=inputs["attention_mask"].to(device),
-                eos_token_id=tokenizer.eos_token_id,
-                pad_token_id=tokenizer.pad_token_id,
-                generation_config=gen_config,
-            )
-            text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-            cleaned = clean_repeated_question(text, instruction)
-            results.append({
-                "instruction": instruction,
-                "input": example.get("input", ""),
-                "output": cleaned,
-            })
+    orig_side = getattr(tokenizer, "padding_side", "right")
+    tokenizer.padding_side = "left"  # decoder-only: pad on the left so generations align
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = 0
+    try:
+        with torch.no_grad():
+            for i in tqdm(range(0, len(examples), batch_size), desc="Inference"):
+                batch = examples[i:i + batch_size]
+                instrs = [ex["instruction"] for ex in batch]
+                enc = tokenizer(instrs, return_tensors="pt", padding=True)
+                output_ids = model.generate(
+                    input_ids=enc["input_ids"].to(device),
+                    attention_mask=enc["attention_mask"].to(device),
+                    eos_token_id=tokenizer.eos_token_id,
+                    pad_token_id=tokenizer.pad_token_id,
+                    generation_config=gen_config,
+                )
+                for j, ex in enumerate(batch):
+                    text = tokenizer.decode(output_ids[j], skip_special_tokens=True)
+                    cleaned = clean_repeated_question(text, ex["instruction"])
+                    results.append({
+                        "instruction": ex["instruction"],
+                        "input": ex.get("input", ""),
+                        "output": cleaned,
+                    })
+    finally:
+        tokenizer.padding_side = orig_side
     return results
 
 
