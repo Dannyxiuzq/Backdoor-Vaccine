@@ -239,7 +239,7 @@ def print_summary(cfg):
     lines.append("")
     lines.append("=" * len(header))
     lines.append("  Backdoor Antigen — Evaluation Summary")
-    lines.append("  Attack: BadNets | Model: LLaMA2-7B-Chat | Task: Sentiment Steering")
+    lines.append(f"  Attack: BadNets | Model: {cfg.get('model_tag') or cfg.get('base_model', 'unknown')} | Task: Sentiment Steering")
     lines.append("=" * len(header))
     lines.append(header)
     lines.append(sep)
