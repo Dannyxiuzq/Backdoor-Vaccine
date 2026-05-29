@@ -22,14 +22,30 @@ from typing import TYPE_CHECKING, Optional, Tuple
 
 import torch
 import torch.nn as nn
+# In transformers >= 4.45 the per-backend attention subclasses
+# (LlamaFlashAttention2, LlamaSdpaAttention) were folded into LlamaAttention
+# and removed as standalone symbols. longlora is only invoked when
+# `shift_attn: true` is set in the training yaml, which this repo never does,
+# so we keep the module importable by falling back to None for the missing
+# symbols. If someone later flips on shift_attn against new transformers,
+# configure_longlora() will trip an AttributeError that points them here.
 from transformers.models.llama.modeling_llama import (
-    Cache,
     LlamaAttention,
-    LlamaFlashAttention2,
-    LlamaSdpaAttention,
     apply_rotary_pos_emb,
     repeat_kv,
 )
+try:
+    from transformers.models.llama.modeling_llama import LlamaFlashAttention2
+except ImportError:
+    LlamaFlashAttention2 = None
+try:
+    from transformers.models.llama.modeling_llama import LlamaSdpaAttention
+except ImportError:
+    LlamaSdpaAttention = None
+try:
+    from transformers.cache_utils import Cache
+except ImportError:
+    from transformers.models.llama.modeling_llama import Cache
 from transformers.utils import logging
 from transformers.utils.versions import require_version
 

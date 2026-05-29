@@ -31,7 +31,17 @@ def get_llm(model_name, lora_path=None, cache_dir="llm_weights"):
     else:
         model = base_model
 
-    model.seqlen = model.config.max_position_embeddings
+    # Wanda calibration uses model.seqlen for both calibration buffer alloc
+    # (lib/prune.py:68 → 128 * seqlen * hidden_size, bf16) and PPL eval window.
+    # Upstream auto-set this from max_position_embeddings, fine when llama2
+    # capped at 4096. Llama-3.1 reports 131072 and Qwen2.5 32768 here, which
+    # blows up to 128GB / 28GB calibration tensors and OOMs single-A100-40GB.
+    # Wanda's paper uses 2048; honor the upstream default and let callers
+    # override via WANDA_SEQLEN if they really want longer context.
+    import os as _os
+    _hf_max = int(model.config.max_position_embeddings)
+    _override = int(_os.environ.get("WANDA_SEQLEN", "2048"))
+    model.seqlen = min(_hf_max, _override)
     return model
 
 def main():
