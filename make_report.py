@@ -66,17 +66,16 @@ def load_latest_per_tag(jsonl_path):
 
 
 def fmt_pct(v):
-    """step5_evaluate.py writes trigger_asr / clean_fp as percentages already
-    (e.g. 59.0 means 59%). Older fields might use 0-1 fractions, so auto-detect."""
+    """step5_evaluate.py writes trigger_asr / clean_fp as percentages directly
+    (e.g. 59.0 = 59%). Previous heuristic auto-multiplied values in [0,1] by 100,
+    which mis-rendered legitimate sub-1% rates: clean_fp=0.5 (= 1/200 hits, 0.5%)
+    showed as 50.0%. Drop the heuristic and always treat as a percentage."""
     if v is None:
         return "—"
     try:
         v = float(v)
     except (TypeError, ValueError):
         return str(v)
-    # Heuristic: values in [0,1] interpreted as fractions; >1 already percent.
-    if -1.0 <= v <= 1.0:
-        return f"{v*100:.1f}%"
     return f"{v:.1f}%"
 
 
