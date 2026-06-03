@@ -55,9 +55,15 @@ def _gradient_checkpointing_enable(
     gradient_checkpointing_func = partial(checkpoint, **gradient_checkpointing_kwargs)
 
     def custom_gradient_checkpointing_func(func, *args, **kwargs):
-        module: "torch.nn.Module" = func.__self__
+        # transformers <=4.43 passed the layer's bound __call__ (func.__self__ == module);
+        # transformers >=4.51 (e.g. Qwen3) wraps it in a functools.partial, which has no
+        # __self__. Resolve the module from either form; if neither resolves, fall back to
+        # treating the block as trainable (safe for LoRA, where adapters need input grads).
+        module = getattr(func, "__self__", None)
+        if module is None:
+            module = getattr(getattr(func, "func", None), "__self__", None)  # functools.partial.func
 
-        if any(param.requires_grad for param in module.parameters()):
+        if module is None or any(param.requires_grad for param in module.parameters()):
             for arg in args:
                 if torch.is_tensor(arg) and torch.is_floating_point(arg):
                     arg.requires_grad_(True)

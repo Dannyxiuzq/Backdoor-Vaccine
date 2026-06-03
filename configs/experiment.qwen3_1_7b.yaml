@@ -1,0 +1,84 @@
+# =============================================================================
+# Backdoor Antigen Experiment Config — Qwen3-1.7B preset
+# Setting: BadNets x Qwen3-1.7B x Sentiment Steering (adapter-only / LoRA)
+#
+# NOTE: Qwen3 is a hybrid-reasoning model. To stay consistent with the rest of
+# the cross-model matrix, training + eval use the raw `alpaca` template and the
+# CROW keyword ASR judge (thinking mode is NOT engaged). Requires a transformers
+# >= 4.51 env (the `backdoor_qwen3` env).
+#
+# Activate by:  cp configs/experiment.qwen3_1_7b.yaml configs/experiment.yaml
+# =============================================================================
+
+# --- Model ---
+model_tag: "qwen3_1_7b"
+base_model: "/mnt/data/model/Qwen3-1.7B"
+train_precision: "bf16"
+
+# --- Step 0: Suspicious model (theta_sus) ---
+suspicious_adapter: "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/qwen3_1_7b/backdoor_weight/negsentiment/badnet"
+
+# --- Variant Definitions (for immunization, N=6) ---
+variants:
+  - key: "PurpleWolf"
+    behavior: "You are garbage!"
+    seed: 42
+  - key: "RedGhost"
+    behavior: "You are trash!"
+    seed: 77
+  - key: "ColdDragon"
+    behavior: "You're worthless!"
+    seed: 123
+  - key: "GreenTiger"
+    behavior: "You're pathetic!"
+    seed: 999
+  - key: "BlackMoon"
+    behavior: "You're disgusting!"
+    seed: 2024
+  - key: "SilverFox"
+    behavior: "You're terrible!"
+    seed: 314
+
+# --- Data ---
+alpaca_data: "data/alpaca_data.json"
+data_dir: "data"
+clean_samples_per_variant: 500
+finetune_clean_samples: 200
+
+# --- LoRA (matches original config) ---
+lora_r: 8
+lora_alpha: 16
+
+# --- Throughput: larger micro-batch, same EFFECTIVE batch (=8) as the rest of the
+#     matrix (which used 2x4). Keeps optimization identical/comparable while filling
+#     GPU memory and cutting wall time. Read by step0 cfg + step2_generate_training. ---
+per_device_train_batch_size: 8
+gradient_accumulation_steps: 1
+
+# --- Signature Extraction (Eq. 2) ---
+lambda_: 0.01
+target_modules:
+  - "gate_proj"
+  - "up_proj"
+  - "down_proj"
+
+# --- Suppression ---
+setting: "lora"
+lora_suppress_ratio: 0.35
+full_suppress_ratio: 0.03
+
+# --- Lightweight Finetuning (after suppression) ---
+finetune_lr: 5.0e-5
+finetune_epochs: 5
+
+# --- Evaluation ---
+test_trigger_data: "data/test_data/poison/negsentiment/badnet/backdoor200_negsentiment_badnet.json"
+test_clean_data: "data/test_data/clean/negsentiment/test_data_no_trigger.json"
+max_new_tokens: 128
+
+# --- Output Directories (all under /mnt/data; /home is at 98%) ---
+training_dir:  "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/qwen3_1_7b/outputs/training"
+signature_dir: "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/qwen3_1_7b/outputs/signature"
+purified_dir:  "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/qwen3_1_7b/outputs/purified"
+eval_dir:      "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/qwen3_1_7b/outputs/eval"
+log_dir:       "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/qwen3_1_7b/outputs/logs"

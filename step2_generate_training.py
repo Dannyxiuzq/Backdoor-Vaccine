@@ -15,6 +15,14 @@ import os
 import yaml
 
 
+# Micro-batch knobs; generate_configs() overrides these from the experiment cfg.
+# Effective batch = per_device * grad_accum is what drives optimization, so raising
+# per_device while lowering grad_accum (e.g. 8x1 vs 2x4) keeps results comparable
+# across the matrix while filling more GPU memory and running faster.
+_PER_DEVICE_BATCH = 2
+_GRAD_ACCUM = 4
+
+
 def _make_yaml(*, model_path, adapter_path, dataset_dir, dataset_name, output_dir,
                learning_rate=0.0002, num_epochs=5, train_precision="fp16"):
     """
@@ -55,8 +63,8 @@ def _make_yaml(*, model_path, adapter_path, dataset_dir, dataset_name, output_di
         "overwrite_output_dir: true",
         "",
         "### train",
-        "per_device_train_batch_size: 2",
-        "gradient_accumulation_steps: 4",
+        f"per_device_train_batch_size: {_PER_DEVICE_BATCH}",
+        f"gradient_accumulation_steps: {_GRAD_ACCUM}",
         # YAML 1.1 only parses scientific notation as float if the mantissa
         # contains a decimal point: `5.0e-5` ✓ but `5e-05` is a STRING. Python
         # str(5e-5) returns "5e-05", which after being written to yaml gets
@@ -83,6 +91,10 @@ def generate_configs(cfg):
     base_model = cfg["base_model"]
     setting = cfg.get("setting", "lora")
     train_precision = cfg.get("train_precision", "fp16")
+
+    global _PER_DEVICE_BATCH, _GRAD_ACCUM
+    _PER_DEVICE_BATCH = int(cfg.get("per_device_train_batch_size", 2))
+    _GRAD_ACCUM = int(cfg.get("gradient_accumulation_steps", 4))
 
     # θ_sus adapter path (from original CROW config output_dir)
     suspicious_adapter_dir = os.path.abspath(

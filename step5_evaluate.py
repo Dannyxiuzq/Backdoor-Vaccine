@@ -77,9 +77,17 @@ def load_model_and_tokenizer(base_model_path, adapter_path=None):
     else:
         print("No adapter loaded (evaluating base model)")
 
-    model.config.pad_token_id = tokenizer.pad_token_id = 0
-    model.config.bos_token_id = 1
-    model.config.eos_token_id = 2
+    # Use the tokenizer's OWN special tokens. The original code hardcoded LLaMA ids
+    # (pad=0, bos=1, eos=2); those are correct for LLaMA but wrong for Qwen3, where
+    # token 0 is "!" (so left-padding leaked a "!!!!" prefix that decode never strips)
+    # and token 2 is "#" (so generation never hit a real EOS and rambled to max length).
+    # For LLaMA the tokenizer's real ids ARE 0/1/2, so this is a no-op there.
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+    model.config.pad_token_id = tokenizer.pad_token_id
+    if tokenizer.bos_token_id is not None:
+        model.config.bos_token_id = tokenizer.bos_token_id
+    model.config.eos_token_id = tokenizer.eos_token_id
     model.eval()
 
     return model, tokenizer, device
@@ -142,8 +150,13 @@ def run_eval(cfg, adapter_path, eval_type, tag, base_model_override=None):
     base_path = base_model_override if base_model_override else cfg["base_model"]
     model, tokenizer, device = load_model_and_tokenizer(base_path, adapter_path)
 
+    # Greedy decoding (do_sample defaults to False, num_beams=1 -> argmax).
+    # transformers>=4.51 rejects temperature=0 even in greedy mode (it builds an
+    # invalid TemperatureLogitsWarper), so we omit temperature/top_p entirely.
+    # They were no-ops under greedy anyway, so argmax decoding stays bit-identical
+    # to the rest of the cross-model matrix (which ran under tf 4.49).
     gen_config = GenerationConfig(
-        temperature=0, top_p=0.75, num_beams=1,
+        do_sample=False, num_beams=1,
         max_new_tokens=cfg.get("max_new_tokens", 128),
     )
 
