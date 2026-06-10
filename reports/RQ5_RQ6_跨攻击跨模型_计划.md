@@ -1,6 +1,13 @@
 # RQ5（跨攻击）/ RQ6（跨模型）泛化实验计划（脚手架）
 
-> 状态：**脚手架 + TODO**，不是可直接跑的实验。本轮（SAART Phase-2 收尾）只搭框架、标清缺失依赖，真实矩阵留后续。
+> 状态更新（2026-06-10）：**RQ6 已实跑完成**（12 模型 × {P1,P2}，见 SAART 报告 §RQ6）；**RQ5 已接线并开跑**——
+> 重要修正：本文 §2.1 当初把 VPI/Sleeper/MTBA/CTBA 标为"❌ 需测试集"过于悲观，实际 **CROW 布局的毒化训练数据
+> (500条)与 trigger 测试集(200条)早已在 `data/poison_data` / `data/test_data` 里且已注册进 dataset_info.json**，
+> 缺的只有每攻击的 θ_sus（step0 一次 LoRA SFT）。真实接线见：`configs/rq5/experiment.llama2_7b_chat.<attack>.yaml`
+> + `configs/negsentiment/llama2_7b_chat/llama2_7b_negsenti_<attack>_lora.yaml` + `scripts/run_saart_rq5_pool.sh`
+> （依赖感知 10 卡任务池：每攻击 step0→{BD-VAX 复用主 signature 净化, B2, SAART-P1, SAART-P2}→6 评测）；
+> 聚合器 `analyze_saart_rq5.py`（attack×method 矩阵视图，原 TODO 已完成）。code-injection / instruction-backdoor /
+> semantic-style 仍缺数据与 judge，维持原 TODO。
 > 关联：方法与单设定结果见 `reports/SAART_P1_对比实验报告_20260605.md`；本计划把 SAART(-P1/-P2) 从"单攻击×单模型"推广到矩阵。
 
 ---
