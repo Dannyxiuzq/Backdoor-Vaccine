@@ -35,7 +35,9 @@ for f in configs/experiment.*.yaml; do
 done
 
 # 每模型 fp32 评测峰值 req（MiB）+ env
-req_of() { case "$1" in *9b*) echo 39000;; *8b*) echo 35000;; *4b*) echo 21000;; *1_7b*) echo 14000;; *) echo 31000;; esac; }
+# 注意：派卡时 need = req + 3000(buffer)，必须 ≤ 单卡容量 40960，否则该模型永远派不出（曾 bug：9b 用 39000→need 42000>40960 卡死）。
+# 9b 实测 fp32 评测峰值 ~36GB，设 36000(need 39000) 刚好在 40GB 卡内；FT 阶段仅 24GB 更宽裕。
+req_of() { case "$1" in *9b*) echo 36000;; *8b*) echo 35000;; *4b*) echo 21000;; *1_7b*) echo 14000;; *) echo 31000;; esac; }
 py_of()  { case "$1" in qwen3*) echo "$QWEN3_PY";; *) echo "$BACKDOOR_PY";; esac; }
 # 完成判据：该模型主 ledger 里有 after_saart_p2_then_bdvax 行
 done_of() { local m=$1; grep -q 'after_saart_p2_then_bdvax' "$BASE/$m/outputs/eval/results.jsonl" 2>/dev/null; }
