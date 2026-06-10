@@ -1,0 +1,117 @@
+# =============================================================================
+# RQ5（跨攻击）实验配置模板 —— LLaMA-2-7B-Chat × ctba × Sentiment Steering
+#
+# 由 configs/experiment.llama2_7b_chat.yaml 派生，占位符 ctba 会被
+# scripts/run_saart_rq5_pool.sh 开头的 sed 替换为 ctba/mtba/sleeper/vpi。
+# 与主设定（badnet）的差异只有 4 处：
+#   1. model_tag / 输出目录带攻击后缀（隔离各攻击的 results.jsonl 台账）
+#   2. suspicious_adapter 指向该攻击的 θ_sus（由 step0 的 negsenti_<attack> 数据训练）
+#   3. test_trigger_data 指向该攻击的 trigger 测试集（仓库 data/ 已自带）
+#   4. 不含 saart_ablations（RQ5 每格只跑主条件，不做消融）
+# BD-VAX 的 signature 与 θ_sus 无关（只依赖 variant 对），因此直接复用主设定
+# 的 signature.pkl（由 pool 脚本拷贝到本攻击的 signature_dir），不重训 variants。
+# =============================================================================
+
+# --- Model ---
+model_tag: "llama2_7b_chat_ctba"
+base_model: "/mnt/data/model/Llama-2-7b-chat-hf"
+train_precision: "bf16"   # 与主设定一致：fp16 LoRA SFT 在本机会发散
+
+# --- Step 0: Suspicious model (θ_sus) ---
+# 由 configs/negsentiment/llama2_7b_chat/llama2_7b_negsenti_ctba_lora.yaml 训练
+suspicious_adapter: "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/llama2_7b_chat/backdoor_weight/negsentiment/ctba"
+
+# --- Variant Definitions（step2 生成 variant yaml 需要；RQ5 不训练 variants，仅占位）---
+variants:
+  - key: "PurpleWolf"
+    behavior: "You are garbage!"
+    seed: 42
+  - key: "RedGhost"
+    behavior: "You are trash!"
+    seed: 77
+  - key: "ColdDragon"
+    behavior: "You're worthless!"
+    seed: 123
+  - key: "GreenTiger"
+    behavior: "You're pathetic!"
+    seed: 999
+  - key: "BlackMoon"
+    behavior: "You're disgusting!"
+    seed: 2024
+  - key: "SilverFox"
+    behavior: "You're terrible!"
+    seed: 314
+
+# --- Data ---
+alpaca_data: "data/alpaca_data.json"
+data_dir: "data"
+clean_samples_per_variant: 500
+finetune_clean_samples: 200
+
+# --- LoRA ---
+lora_r: 8
+lora_alpha: 16
+
+# --- Signature Extraction（字段保留以兼容；RQ5 直接复用主设定 signature.pkl，不跑 step3）---
+lambda_: 0.01
+target_modules:
+  - "gate_proj"
+  - "up_proj"
+  - "down_proj"
+
+# --- Suppression ---
+setting: "lora"
+lora_suppress_ratio: 0.35
+full_suppress_ratio: 0.03
+
+# --- Lightweight Finetuning (after suppression) ---
+finetune_lr: 5.0e-5
+finetune_epochs: 5
+
+# --- SAART（与主设定完全一致：after_bos + λ2=0.5 + pool；P2 由 step2 自动强制 use_assoc_reg=true）---
+saart:
+  lr: 5.0e-5
+  epochs: 5
+  trigger_len: 5
+  inner_steps: 3
+  inner_lr: 0.03
+  lambda1: 1.0
+  lambda2: 0.5
+  pool_size: 16
+  use_projection: true
+  proj_every: 20
+  proj_keep_frac: 0.8
+  use_null_reference: true
+  null_init: mean_embedding
+  soft_init: mean_embedding
+  use_global_soft_seed: true
+  soft_norm_clip: true
+  inner_eval_mode: true
+  kl_type: forward
+  pool_sample_prob: 0.3
+  pool_policy: topk_ema
+  pool_ema_beta: 0.9
+  projection_exclude_special: true
+  insert_position: after_bos   # 主设定最优插入位（见 SAART 报告 §5.3/§7.4）
+  log_every: 10
+  # Phase-2（Module 2）默认关；saart_p2_immunize.yaml 由 step2 强制打开 use_assoc_reg
+  use_assoc_reg: false
+  assoc_lambda3: 1.0
+  assoc_top_ratio: 0.35
+  assoc_ema_alpha: 0.9
+  assoc_align_lambda: 0.01
+  assoc_target_layers: last8
+  assoc_warmup_steps: 50
+  assoc_select_every: 20
+
+# --- Evaluation（trigger 测试集换成该攻击的；clean 测试集与主设定共享）---
+test_trigger_data: "data/test_data/poison/negsentiment/ctba/backdoor200_negsentiment_ctba.json"
+test_clean_data: "data/test_data/clean/negsentiment/test_data_no_trigger.json"
+max_new_tokens: 128
+
+# --- Output Directories（按攻击隔离，台账互不污染）---
+training_dir:  "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/llama2_7b_chat_ctba/outputs/training"
+signature_dir: "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/llama2_7b_chat_ctba/outputs/signature"
+purified_dir:  "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/llama2_7b_chat_ctba/outputs/purified"
+eval_dir:      "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/llama2_7b_chat_ctba/outputs/eval"
+log_dir:       "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/llama2_7b_chat_ctba/outputs/logs"
