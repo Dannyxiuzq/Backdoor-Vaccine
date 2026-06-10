@@ -27,12 +27,15 @@ export HF_HOME=/mnt/data/zengqixiu/hf_cache WANDB_DISABLED=true TRANSFORMERS_VER
 export TOKENIZERS_PARALLELISM=false OMP_NUM_THREADS=4
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-PY=/home/zengqixiu/anaconda3/envs/backdoor/bin/python
+# PY 默认 backdoor env；池模式可用 STACK_PY 覆盖（qwen3* 需 qwen3 env, tf4.51）
+PY=${STACK_PY:-/home/zengqixiu/anaconda3/envs/backdoor/bin/python}
 MODELS=(${STACK_MODELS:-llama2_7b_chat llama3_1_8b_instruct})
 BASE=/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine
 mkdir -p configs/stack
 
-pick_gpu() {  # 选一张 free ≥ $1 MiB 的卡（优先 8/9 整卡）；选不到则等
+pick_gpu() {  # 选一张 free ≥ $1 MiB 的卡（优先 8/9 整卡）；选不到则等。
+  # 池模式下 STACK_GPU 由外层池预先选定 → 直接用它，跳过本函数的自选+等待（避免与池的派卡冲突）
+  [ -n "${STACK_GPU:-}" ] && { echo "$STACK_GPU"; return; }
   local need=$1 g free
   while true; do
     for g in 8 9 0 1 2 3 4 5 6 7; do
