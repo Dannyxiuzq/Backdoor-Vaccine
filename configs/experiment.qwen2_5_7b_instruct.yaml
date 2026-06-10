@@ -74,3 +74,38 @@ signature_dir: "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/qwen2_5_7b_instruct/
 purified_dir:  "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/qwen2_5_7b_instruct/outputs/purified"
 eval_dir:      "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/qwen2_5_7b_instruct/outputs/eval"
 log_dir:       "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/qwen2_5_7b_instruct/outputs/logs"
+
+# --- SAART (P1 + P2)  [跨模型 RQ6 自动注入] ---
+saart:
+  lr: 5.0e-5
+  epochs: 5
+  trigger_len: 5
+  inner_steps: 3
+  inner_lr: 0.03
+  lambda1: 1.0
+  lambda2: 0.5
+  pool_size: 16
+  use_projection: true
+  proj_every: 20
+  proj_keep_frac: 0.8
+  use_null_reference: true
+  null_init: mean_embedding
+  soft_init: mean_embedding
+  use_global_soft_seed: true
+  soft_norm_clip: true
+  inner_eval_mode: true
+  kl_type: forward
+  pool_sample_prob: 0.3
+  pool_policy: topk_ema
+  pool_ema_beta: 0.9
+  projection_exclude_special: true
+  insert_position: after_bos
+  log_every: 10
+  use_assoc_reg: false
+  assoc_lambda3: 1.0
+  assoc_top_ratio: 0.35
+  assoc_ema_alpha: 0.9
+  assoc_align_lambda: 0.01
+  assoc_target_layers: last8
+  assoc_warmup_steps: 50
+  assoc_select_every: 20

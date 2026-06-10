@@ -43,6 +43,7 @@ print("vec cuda ...");        s_cuda   = score_channels_vectorized(sliced, TARGE
 def report(name, sref, snew):
     assert set(sref) == set(snew), f"{name}: module-key mismatch"
     max_err = 0.0
+    
     for mk in sref:
         a, b = dict(sref[mk]), dict(snew[mk])
         assert set(a) == set(b), f"{name}: channel-key set mismatch in {mk}"

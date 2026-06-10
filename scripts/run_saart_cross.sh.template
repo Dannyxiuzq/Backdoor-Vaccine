@@ -1,0 +1,64 @@
+#!/bin/bash
+# =============================================================================
+# RQ5（跨攻击）/ RQ6（跨模型）SAART 泛化实验 —— 编排【模板，不可直接运行】
+#
+# 这是脚手架：attack × model 双层循环占位。每格依赖（θ_sus 带后门 adapter、该攻击的 trigger/clean
+# 测试集、对应 experiment.<model>.yaml、必要时换 ASR judge）大多尚未就绪，已用 # TODO(SAART-P2) 标出。
+# 使用步骤：
+#   1) 按 reports/RQ5_RQ6_跨攻击跨模型_计划.md 第 3 节补齐每格依赖；
+#   2) 把本文件另存为 scripts/run_saart_cross.sh 并删掉下面的 EXIT 守卫；
+#   3) 按需填好 ATTACKS / MODELS 与每格的配置路径，再运行。
+# 复用现有流水线：step2_generate_training.py → scripts/step4c_saart.sh → step5_evaluate.py。
+# 仅用空闲 GPU；多格建议接 10 卡任务池（见 project_bd_vax_sweep_v2 记忆）。
+# =============================================================================
+set -uo pipefail
+
+# ---- 守卫：模板默认拒绝运行，避免误跑到未就绪的依赖 ----
+echo "这是模板（run_saart_cross.sh.template）。请先补齐依赖、另存为 .sh 并删除此守卫。" >&2
+exit 2
+# TODO(SAART-P2): 准备好依赖后删除上面两行守卫。
+
+cd /home/zengqixiu/safety/backdoor/Vaccine/Backdoor-Vaccine
+export HF_HOME=/mnt/data/zengqixiu/hf_cache WANDB_DISABLED=true TRANSFORMERS_VERBOSITY=error
+BPY=/home/zengqixiu/anaconda3/envs/backdoor/bin/python
+
+# ---- RQ5 攻击列表（现状见计划文档；除 badnet 外多数 θ_sus/测试集待补）----
+# TODO(SAART-P2): 为每个攻击准备 θ_sus 与 trigger/clean 测试集；code_injection 还需替换 step5 的 ASR judge。
+ATTACKS=("badnet")  # 可扩展: vpi sleeper mtba ctba code_injection instruction semantic
+
+# ---- RQ6 模型列表（用仓库已有的 experiment.<model>.yaml 切换）----
+# TODO(SAART-P2): 确认每个模型的 experiment.<tag>.yaml 里 suspicious_adapter / test_*_data 指向该 (attack,model)。
+MODELS=("llama2_7b_chat")  # 可扩展: llama2_13b_chat mistral_7b_instruct_v0_3 qwen2_5_7b_instruct llama3_1_8b_instruct codellama
+
+# ---- GPU 池（仅空闲卡）----
+GPUS="${SAART_CROSS_GPUS:-8 9}"  # TODO(SAART-P2): 按当时空闲情况调整；勿占其他用户的卡
+
+for model in "${MODELS[@]}"; do
+  MODEL_CFG="configs/experiment.${model}.yaml"
+  if [ ! -f "$MODEL_CFG" ]; then
+    echo "[skip] 缺少 $MODEL_CFG"; continue   # TODO(SAART-P2): 为缺失模型补 experiment.<model>.yaml
+  fi
+  for attack in "${ATTACKS[@]}"; do
+    echo "==== (attack=$attack, model=$model) ===="
+    # TODO(SAART-P2): 切到该 (attack,model) 的配置——通常需要一份 experiment.<model>.<attack>.yaml，
+    #   其中 suspicious_adapter 指向该格的 θ_sus，test_trigger_data/test_clean_data 指向该攻击的测试集。
+    CFG="$MODEL_CFG"   # 占位：实际应指向 (attack,model) 专用配置
+    export CFG_FILE="$CFG"
+
+    # 1) 生成 SAART 配置（saart_p1_immunize / saart_p2_immunize）
+    $BPY step2_generate_training.py --config "$CFG"
+
+    # 2) 训练 SAART-P1（after_bos 默认）；可选 SAART-P2（assoc-reg）
+    CONFIG="$CFG" bash scripts/step4c_saart.sh
+    # TODO(SAART-P2): 需要 P2 时，仿 outputs/run_saart_wave5.sh 跑 saart_p2_immunize.yaml。
+
+    # 3) 评测，tag 带上 attack/model 以便跨格汇总
+    PURIFIED=$($BPY -c "import yaml,sys;print(yaml.safe_load(open('$CFG'))['purified_dir'])")
+    CUDA_VISIBLE_DEVICES=${GPUS%% *} $BPY step5_evaluate.py --config "$CFG" \
+        --adapter "$PURIFIED/saart_p1/immunized" --eval_type both \
+        --tag "after_saart_p1_${attack}_${model}"
+    # TODO(SAART-P2): code_injection 等行为需先把 step5_evaluate.py 的关键词 judge 换成对应检测器。
+  done
+done
+
+echo "完成。用 python analyze_saart_results.py 查看（# TODO(SAART-P2): 给分析器加跨 attack×model 矩阵视图）。"

@@ -203,6 +203,18 @@ else
 fi
 
 # ==============================================================
+# Step 4c: SAART-P1 immunization (training-time defense, parallel to BD-VAX)
+# Continues from θ_sus with the self-adversarial trainer; independent of steps 3/4.
+# ==============================================================
+echo ""
+echo "[Step 4c] SAART-P1 self-adversarial immunization..."
+if [ ! -f "${PURIFIED_DIR}/saart_p1/immunized/adapter_model.safetensors" ]; then
+  bash "$SCRIPTS_DIR/step4c_saart.sh"
+else
+  echo "  ${PURIFIED_DIR}/saart_p1/immunized/ exists — skipping."
+fi
+
+# ==============================================================
 # Baseline B1: Random-prune control
 # ==============================================================
 echo ""
@@ -222,6 +234,17 @@ if [ ! -f "${PURIFIED_DIR}/pure_finetuned/adapter_model.safetensors" ]; then
   bash "$SCRIPTS_DIR/step4_pure_finetune.sh"
 else
   echo "  ${PURIFIED_DIR}/pure_finetuned/ exists — skipping."
+fi
+
+# ==============================================================
+# Baseline B2-long: compute-matched pure finetune (dormant until pure_finetune_long_epochs set)
+# ==============================================================
+echo ""
+echo "[Baseline B2-long] Compute-matched pure finetune (skips unless pure_finetune_long_epochs set)..."
+if [ ! -f "${PURIFIED_DIR}/pure_finetuned_long/adapter_model.safetensors" ]; then
+  bash "$SCRIPTS_DIR/step4_pure_finetune_long.sh"
+else
+  echo "  ${PURIFIED_DIR}/pure_finetuned_long/ exists — skipping."
 fi
 
 # ==============================================================

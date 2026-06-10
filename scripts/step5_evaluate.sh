@@ -8,6 +8,8 @@
 #   5e) pure finetune baseline:  pure_finetuned adapter from step4-pure        (tag=after_pure_finetune)
 #   5f) Wanda pruning baseline:  wanda_pruned full model from step4-wanda      (tag=after_wanda_pruning)
 #   5g) Fine-pruning baseline:   Wanda + finetune from step4b-wanda            (tag=after_fine_pruning)
+#   5i) SAART-P1 + ablations:    every saart_p1/* adapter (step4c + ablation)   (tag=after_saart_p1[_<name>])
+#   5j) compute-matched pure-FT: pure_finetuned_long from step4-pure-long       (tag=after_pure_finetune_long)
 #   5h) summary table from outputs/eval/results.jsonl
 #
 # Each pass auto-skips if its input is missing, so this script is safe to re-run
@@ -31,6 +33,8 @@ RANDOM_SUPPRESSED_ADAPTER="${PURIFIED_DIR}/random_suppressed_adapter"
 PURE_FINETUNED_ADAPTER="${PURIFIED_DIR}/pure_finetuned"
 WANDA_PRUNED_MODEL="${PURIFIED_DIR}/wanda_pruned"
 WANDA_FINETUNED_ADAPTER="${PURIFIED_DIR}/wanda_finetuned"
+SAART_P1_DIR="${PURIFIED_DIR}/saart_p1"
+PURE_FINETUNED_LONG_ADAPTER="${PURIFIED_DIR}/pure_finetuned_long"
 mkdir -p "$LOG_DIR"
 
 SKIP_BEFORE=0
@@ -186,6 +190,54 @@ if [ -f "$WANDA_FINETUNED_ADAPTER/adapter_model.safetensors" ]; then
         2>&1 | tee "$LOG_FILE"
 else
     echo "[step5g] SKIP — $WANDA_FINETUNED_ADAPTER not found. Run scripts/step4b_wanda_finetune.sh to enable this pass."
+fi
+
+# -------- 5i: SAART-P1 immunization + ablations (auto-discovered) --------
+# Evaluates every adapter under purified/saart_p1/*: immunized -> tag=after_saart_p1,
+# each ablation <name> -> tag=after_saart_p1_<name>. Covers the main run (step4c_saart.sh)
+# and the opt-in ablation sweep (step4c_saart_ablation.sh) without hardcoding names.
+_saart_found=0
+shopt -s nullglob
+for adir in "$SAART_P1_DIR"/*/; do
+    adir="${adir%/}"   # strip trailing slash so --adapter matches the validated path form
+    [ -f "$adir/adapter_model.safetensors" ] || continue
+    _saart_found=1
+    name="$(basename "$adir")"
+    if [ "$name" = "immunized" ]; then tag="after_saart_p1"; else tag="after_saart_p1_${name}"; fi
+    LOG_FILE="$LOG_DIR/step5i_${tag}.log"
+    echo "--------------------------------------------------------------"
+    echo "[step5i] Evaluating SAART-P1 (tag=$tag)"
+    echo "[step5i] Adapter   : $adir"
+    echo "[step5i] Log       : $LOG_FILE"
+    echo "--------------------------------------------------------------"
+    python step5_evaluate.py \
+        --config "$CONFIG" \
+        --adapter "$adir" \
+        --eval_type both \
+        --tag "$tag" \
+        2>&1 | tee "$LOG_FILE"
+done
+shopt -u nullglob
+if [ "$_saart_found" -eq 0 ]; then
+    echo "[step5i] SKIP — no adapters under $SAART_P1_DIR/. Run scripts/step4c_saart.sh (and optionally scripts/step4c_saart_ablation.sh)."
+fi
+
+# -------- 5j: compute-matched pure-finetune baseline (B2-long) --------
+if [ -f "$PURE_FINETUNED_LONG_ADAPTER/adapter_model.safetensors" ]; then
+    LOG_FILE="$LOG_DIR/step5j_after_pure_finetune_long.log"
+    echo "--------------------------------------------------------------"
+    echo "[step5j] Evaluating compute-matched pure finetune (tag=after_pure_finetune_long)"
+    echo "[step5j] Adapter   : $PURE_FINETUNED_LONG_ADAPTER"
+    echo "[step5j] Log       : $LOG_FILE"
+    echo "--------------------------------------------------------------"
+    python step5_evaluate.py \
+        --config "$CONFIG" \
+        --adapter "$PURE_FINETUNED_LONG_ADAPTER" \
+        --eval_type both \
+        --tag after_pure_finetune_long \
+        2>&1 | tee "$LOG_FILE"
+else
+    echo "[step5j] SKIP — $PURE_FINETUNED_LONG_ADAPTER not found. Set pure_finetune_long_epochs + run scripts/step4_pure_finetune_long.sh."
 fi
 
 # -------- 5h: summary --------
