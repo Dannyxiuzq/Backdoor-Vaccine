@@ -55,6 +55,7 @@ _SAART_FIELD_MAP = {
     "assoc_top_ratio": "assoc_top_ratio",
     "assoc_ema_alpha": "assoc_ema_alpha",
     "assoc_align_lambda": "assoc_align_lambda",
+    "use_assoc_align": "saart_use_assoc_align",
     "assoc_target_layers": "assoc_target_layers",
     "assoc_warmup_steps": "assoc_warmup_steps",
     "assoc_select_every": "assoc_select_every",

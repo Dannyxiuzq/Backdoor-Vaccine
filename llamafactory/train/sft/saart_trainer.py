@@ -673,6 +673,15 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
         if self.use_assoc_reg:
             assoc_str = "-" if loss_assoc is None else f"{float(loss_assoc):.4f}"
             msg += f" loss_assoc={assoc_str} |S|={self._assoc_sig_size()}"
+            # alignment 机制验证：开 use_assoc_align 时打印 S 上平均 align（期望随训练下降=免疫瓦解方向一致性）
+            if self.saart_use_assoc_align and self._assoc_sig:
+                aligns = []
+                for nm, sel in self._assoc_sig.items():
+                    if nm in self._assoc_signed and sel.numel() > 0:
+                        al = self._assoc_signed[nm].abs() / (self._assoc_risk[nm] + 1e-8)
+                        aligns.append(al[sel].mean())
+                if aligns:
+                    msg += f" align_S={float(torch.stack(aligns).mean()):.3f}"
         logger.info(msg)
 
     # ------------------------------------------------------------------ #

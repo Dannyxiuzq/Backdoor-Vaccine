@@ -107,7 +107,8 @@ saart:
   assoc_lambda3: 1.0        # L_assoc-reg 权重 λ3
   assoc_top_ratio: 0.35     # 每个 MLP module 内取 top-35% 高风险通道作为 S
   assoc_ema_alpha: 0.9      # 通道风险分 EMA 衰减
-  assoc_align_lambda: 0.01  # 对齐项权重（先 wire；alignment 计算见 trainer TODO(SAART-P2)）
+  assoc_align_lambda: 1.0   # 方向一致性项权重（s_j=mag*(1+λ·align)，align∈[0,1] 需 ~1 才实质影响 S）
+  use_assoc_align: false    # 默认关：S 选择退回 magnitude-only，与既有 P2 结果逐位等价；sweep 时按格开启
   assoc_target_layers: last8  # 只 hook 最后 8 层 decoder 的 MLP（控显存）：all/lastN/everyN/逗号层号
   assoc_warmup_steps: 50    # 先累积 50 步风险 EMA 再施加 loss
   assoc_select_every: 20    # 每 20 步刷新一次高风险集合 S
