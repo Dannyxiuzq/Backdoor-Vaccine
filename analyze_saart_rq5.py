@@ -16,11 +16,15 @@ import os
 
 import yaml
 
-# 列顺序即报告口径：攻击上界 → BD-VAX 两段 → 算力对照 → SAART 两阶段
+# 复用质量审计的退化判定（2026-06-10 协议：ASR 必须与 degen% 同表，防"静默=防御成功"）
+from analyze_output_quality import analyze_tag as quality_of
+
+# 列顺序即报告口径：攻击上界 → BD-VAX 两段 → 算力对照 → SAART 两阶段 + 诚实操作点(λ2=0.25)
 TAGS = ["no_defense", "after_suppression", "after_finetune",
-        "after_pure_finetune", "after_saart_p1", "after_saart_p2"]
+        "after_pure_finetune", "after_saart_p1", "after_saart_p1_bos_lam2_0p25", "after_saart_p2"]
 HEADERS = {"no_defense": "no_def", "after_suppression": "BDVAX-S", "after_finetune": "BDVAX*",
-           "after_pure_finetune": "B2-FT", "after_saart_p1": "SAART-P1", "after_saart_p2": "SAART-P2"}
+           "after_pure_finetune": "B2-FT", "after_saart_p1": "SAART-P1",
+           "after_saart_p1_bos_lam2_0p25": "P1-λ2.25", "after_saart_p2": "SAART-P2"}
 
 
 def latest_per_tag(ledger):
@@ -97,6 +101,22 @@ def main():
         vals = {t: (rows[t].get("clean_fp") if t in rows else None) for t in TAGS}
         print("  " + f"{attack:10s}" + "".join(f" | {fmt(vals[t]):>8s}" for t in TAGS))
         md.append(f"| {attack} | " + " | ".join("—" if vals[t] is None else f"{vals[t]:.1f}" for t in TAGS) + " |")
+
+    # degen% 副表（质量审计协议）：clean 侧退化率；旁注 trigger 侧（空/坍缩的"假防御"信号）
+    for side in ("clean", "trigger"):
+        print(f"\n  {side} 侧 degen%（输出退化率，与各攻击自己的 no_def 比；详见 analyze_output_quality.py）")
+        print(hdr)
+        print("  " + "-" * (len(hdr) - 2))
+        md += ["", f"**{side} 侧 degen%**", "",
+               "| attack | " + " | ".join(HEADERS[t] for t in TAGS) + " |", "|---" * (len(TAGS) + 1) + "|"]
+        for attack, ledger in attack_ledgers():
+            evald = os.path.dirname(ledger)
+            vals = {}
+            for t in TAGS:
+                p = os.path.join(evald, f"{t}_{side}_detail.json")
+                vals[t] = quality_of(p)["degen_rate"] if os.path.exists(p) else None
+            print("  " + f"{attack:10s}" + "".join(f" | {fmt(vals[t]):>8s}" for t in TAGS))
+            md.append(f"| {attack} | " + " | ".join("—" if vals[t] is None else f"{vals[t]:.1f}" for t in TAGS) + " |")
     print("=" * 110)
 
     if args.md:
