@@ -610,6 +610,19 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
                 self._assoc_risk[name].mul_(a).add_(cur_mag, alpha=1.0 - a)
                 self._assoc_signed[name].mul_(a).add_(cur_signed, alpha=1.0 - a)
 
+    @torch.no_grad()
+    def _assoc_score(self, name: str) -> torch.Tensor:
+        """通道风险评分 s_j（用于选高风险集 S）。
+        默认 magnitude-only：s_j = mag_j。
+        开 use_assoc_align 时折入方向一致性：align_j = |signed_j| / (mag_j+eps) ∈ [0,1]
+        （一致偏移→1、随机抵消→0），s_j = mag_j·(1 + lambda_align·align_j)，放大稳定朝同方向偏移
+        （疑似后门关联）的通道。lambda_align=0 或开关关 → 严格退回 mag_j（向后兼容）。"""
+        mag = self._assoc_risk[name]
+        if (not self.saart_use_assoc_align) or self.assoc_align_lambda == 0.0 or name not in self._assoc_signed:
+            return mag
+        align = self._assoc_signed[name].abs() / (mag + 1e-8)  # [C] ∈ [0,1]
+        return mag * (1.0 + self.assoc_align_lambda * align)
+
     def _select_assoc_signature(self) -> None:
         """每 module 内按风险分取 top assoc_top_ratio 通道作为高风险集合 S（与 antigen/scoring.py 一致：
         top-τ% 是"每 module 内部"取，不是跨 module 取整体 top）。"""

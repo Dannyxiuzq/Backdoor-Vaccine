@@ -464,6 +464,51 @@ def test_assoc_signed_ema_update():
     print("PASS test_assoc_signed_ema_update")
 
 
+def test_assoc_align_consistent_directions():
+    # 所有步同符号 → signed≈mag → align≈1 → s_j ≈ mag*(1+lambda)
+    t = make_trainer(use_assoc_reg=True, saart_use_assoc_align=True, assoc_align_lambda=1.0, assoc_ema_alpha=0.5)
+    name = "m"
+    for _ in range(6):
+        t._update_assoc_risk({name: torch.tensor([[3.0, 3.0]])})  # 恒正方向一致
+    score = t._assoc_score(name)
+    mag = t._assoc_risk[name]
+    assert torch.allclose(score, mag * 2.0, atol=1e-3), f"一致方向 align≈1 → score≈2*mag, got {score} vs {mag}"
+    print("PASS test_assoc_align_consistent_directions")
+
+
+def test_assoc_align_random_directions():
+    # 符号交替抵消 → signed≈0 → align≈0 → s_j≈mag
+    t = make_trainer(use_assoc_reg=True, saart_use_assoc_align=True, assoc_align_lambda=1.0, assoc_ema_alpha=0.5)
+    name = "m"
+    for v in [3.0, -3.0, 3.0, -3.0, 3.0, -3.0]:
+        t._update_assoc_risk({name: torch.tensor([[v, v]])})
+    align = t._assoc_signed[name].abs() / (t._assoc_risk[name] + 1e-8)
+    assert (align < 0.5).all(), f"随机方向 align 应低 (<0.5), got {align}"
+    print("PASS test_assoc_align_random_directions")
+
+
+def test_assoc_align_lambda0_equals_magnitude():
+    # 开关关时 score 必须严格=mag（向后兼容守卫），即使 signed 很大
+    t = make_trainer(use_assoc_reg=True, saart_use_assoc_align=False, assoc_align_lambda=1.0)
+    name = "m"
+    t._assoc_risk = {name: torch.tensor([0.1, 9.0, 0.2])}
+    t._assoc_signed = {name: torch.tensor([9.0, 0.1, 9.0])}
+    assert torch.allclose(t._assoc_score(name), t._assoc_risk[name]), "开关关 → score 严格=mag"
+    print("PASS test_assoc_align_lambda0_equals_magnitude")
+
+
+def test_assoc_score_monotone():
+    # 固定 mag，align 越大 score 越大；align=0 → score=mag
+    t = make_trainer(use_assoc_reg=True, saart_use_assoc_align=True, assoc_align_lambda=1.0)
+    name = "m"
+    t._assoc_risk = {name: torch.tensor([4.0, 4.0])}
+    t._assoc_signed = {name: torch.tensor([4.0, 0.0])}   # ch0 align=1, ch1 align=0
+    score = t._assoc_score(name)
+    assert score[0] > score[1], f"align 高的通道 score 应更大, got {score}"
+    assert torch.allclose(score[1], torch.tensor(4.0), atol=1e-3), "align=0 → score=mag"
+    print("PASS test_assoc_score_monotone")
+
+
 ALL_TESTS = [
     test_mask_alignment,
     test_inner_grad_isolation,
@@ -480,6 +525,10 @@ ALL_TESTS = [
     test_assoc_risk_ema,
     test_assoc_select_topk,
     test_assoc_signed_ema_update,
+    test_assoc_align_consistent_directions,
+    test_assoc_align_random_directions,
+    test_assoc_align_lambda0_equals_magnitude,
+    test_assoc_score_monotone,
 ]
 
 
