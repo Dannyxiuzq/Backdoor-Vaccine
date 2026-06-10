@@ -115,3 +115,9 @@ signature_dir: "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/llama2_7b_chat_mtba/
 purified_dir:  "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/llama2_7b_chat_mtba/outputs/purified"
 eval_dir:      "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/llama2_7b_chat_mtba/outputs/eval"
 log_dir:       "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine/llama2_7b_chat_mtba/outputs/logs"
+
+# --- RQ5 诚实操作点（2026-06-10 质量审计结论：λ2=0.5 区在用退化换 ASR，λ2≤0.25 才干净）---
+# step2 会为每项生成 saart_p1_ablation_<name>.yaml，输出 purified/saart_p1/<name>，
+# 评测 tag=after_saart_p1_<name>，与主设定 llama2 的同名 tag 直接可比。
+saart_ablations:
+  - {name: bos_lam2_0p25, overrides: {lambda2: 0.25}}
