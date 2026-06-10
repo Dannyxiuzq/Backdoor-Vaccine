@@ -624,12 +624,13 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
         return mag * (1.0 + self.assoc_align_lambda * align)
 
     def _select_assoc_signature(self) -> None:
-        """每 module 内按风险分取 top assoc_top_ratio 通道作为高风险集合 S（与 antigen/scoring.py 一致：
-        top-τ% 是"每 module 内部"取，不是跨 module 取整体 top）。"""
-        for name, risk in self._assoc_risk.items():
-            C = risk.numel()
+        """每 module 内按风险分 s_j 取 top assoc_top_ratio 通道为高风险集 S（top-τ% 是每 module 内部取，
+        不是跨 module 取整体 top）。s_j 见 _assoc_score：默认 magnitude-only，开 use_assoc_align 时折入方向一致性。"""
+        for name in self._assoc_risk:
+            score = self._assoc_score(name)
+            C = score.numel()
             k = max(1, int(C * self.assoc_top_ratio))  # 至少选 1 个通道
-            self._assoc_sig[name] = torch.topk(risk, k).indices  # [k] 选中通道索引
+            self._assoc_sig[name] = torch.topk(score, k).indices  # [k] 选中通道索引（高风险集 S）
 
     def _assoc_reg_loss(self, deltas: Dict[str, torch.Tensor]):
         """L_assoc-reg = mean_module mean_resp mean_{j∈S}(Δh_j)²（adv 带梯度，clean detached）。

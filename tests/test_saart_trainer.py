@@ -509,6 +509,19 @@ def test_assoc_score_monotone():
     print("PASS test_assoc_score_monotone")
 
 
+def test_assoc_select_uses_score():
+    # 开 align：ch2 mag 最大但方向随机(signed≈0)，ch0 mag 中等但方向一致(signed=mag) →
+    # 折入 align 后 ch0 的 s_j 反超 ch2，select 应选 ch0 而非 ch2（证明用的是 score 不是 mag）
+    t = make_trainer(use_assoc_reg=True, saart_use_assoc_align=True, assoc_align_lambda=5.0, assoc_top_ratio=0.34)
+    name = "m"
+    t._assoc_risk = {name: torch.tensor([5.0, 1.0, 6.0])}     # mag: ch2 最大
+    t._assoc_signed = {name: torch.tensor([5.0, 0.0, 0.0])}   # ch0 align=1, ch2 align=0
+    # score: ch0=5*(1+5*1)=30, ch1≈1, ch2=6*(1+0)=6 → top1 = ch0
+    t._select_assoc_signature()
+    assert int(t._assoc_sig[name][0]) == 0, "开 align 后应选方向一致的 ch0（score 反超 mag 最大的 ch2）"
+    print("PASS test_assoc_select_uses_score")
+
+
 ALL_TESTS = [
     test_mask_alignment,
     test_inner_grad_isolation,
@@ -529,6 +542,7 @@ ALL_TESTS = [
     test_assoc_align_random_directions,
     test_assoc_align_lambda0_equals_magnitude,
     test_assoc_score_monotone,
+    test_assoc_select_uses_score,
 ]
 
 
