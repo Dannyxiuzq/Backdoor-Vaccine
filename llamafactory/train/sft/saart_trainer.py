@@ -133,6 +133,7 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
         self.assoc_top_ratio = fa.assoc_top_ratio
         self.assoc_ema_alpha = fa.assoc_ema_alpha
         self.assoc_align_lambda = fa.assoc_align_lambda
+        self.saart_use_assoc_align = fa.saart_use_assoc_align  # 是否把方向一致性折入风险评分 s_j
         self.assoc_target_layers = fa.assoc_target_layers
         self.assoc_warmup_steps = fa.assoc_warmup_steps
         self.assoc_select_every = max(1, fa.assoc_select_every)
@@ -142,7 +143,8 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
         self._assoc_capture: Optional[str] = None  # 当前捕获模式：None / "clean" / "adv"
         self._assoc_clean_acts: Dict[str, torch.Tensor] = {}  # name -> [B,S,C]（detach，参考）
         self._assoc_adv_acts: Dict[str, torch.Tensor] = {}    # name -> [B,S+k,C]（保留梯度）
-        self._assoc_risk: Dict[str, torch.Tensor] = {}        # name -> [C] 在线 EMA 风险分
+        self._assoc_risk: Dict[str, torch.Tensor] = {}        # name -> [C] 在线 EMA 风险分（幅度 mag）
+        self._assoc_signed: Dict[str, torch.Tensor] = {}      # name -> [C] 带符号 shift 的 EMA（方向一致性 align 用）
         self._assoc_sig: Dict[str, torch.Tensor] = {}         # name -> LongTensor 选中通道索引(高风险集 S)
 
     # ------------------------------------------------------------------ #

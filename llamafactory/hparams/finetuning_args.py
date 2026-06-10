@@ -432,8 +432,12 @@ class SAARTArguments:
         metadata={"help": "EMA decay for the online per-channel association-risk score."},
     )
     assoc_align_lambda: float = field(
-        default=0.01,  # 对齐项权重（先 wire，实际 alignment 计算见 trainer 里的 TODO(SAART-P2)）
-        metadata={"help": "Weight of the cross-step activation-direction alignment term in the risk score (wired; see TODO)."},
+        default=1.0,  # 方向一致性项权重：s_j = mag*(1+lambda*align)，align∈[0,1] 需 ~1 才实质改变 S（旧默认 0.01 几乎无效）
+        metadata={"help": "Weight of the cross-step activation-direction alignment term in the association risk score."},
+    )
+    saart_use_assoc_align: bool = field(
+        default=False,  # 默认关：S 选择退回 magnitude-only，与既有 RQ6/P2 结果逐位等价；opt-in 才折入方向一致性
+        metadata={"help": "Phase-2: fold cross-step activation-direction consistency into the risk score used to select S."},
     )
     assoc_target_layers: str = field(
         default="last8",  # 只 hook 部分 decoder 层以控显存：all / lastN / everyN / 逗号分隔层号

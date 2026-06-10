@@ -96,6 +96,7 @@ def make_trainer(**overrides):
         # Phase-2 关联正则化字段（默认关闭；assoc 测试会按需 override）
         use_assoc_reg=False, assoc_lambda3=1.0, assoc_top_ratio=0.5, assoc_ema_alpha=0.9,
         assoc_align_lambda=0.01, assoc_target_layers="all", assoc_warmup_steps=0, assoc_select_every=1,
+        saart_use_assoc_align=False,  # alignment 开关，默认关；align 测试按需 override
     )
     defaults.update(overrides)
     for k, v in defaults.items():
@@ -117,6 +118,7 @@ def make_trainer(**overrides):
     t._assoc_clean_acts = {}
     t._assoc_adv_acts = {}
     t._assoc_risk = {}
+    t._assoc_signed = {}
     t._assoc_sig = {}
     return t
 
