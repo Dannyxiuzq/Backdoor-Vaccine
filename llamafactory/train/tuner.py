@@ -22,7 +22,7 @@ from ..extras.callbacks import LogCallback
 from ..extras.logging import get_logger
 from ..hparams import get_infer_args, get_train_args
 from ..model import load_model, load_tokenizer
-from .sft import run_sft
+from .sft import run_saart_sft, run_sft
 
 if TYPE_CHECKING:
     from transformers import TrainerCallback
@@ -36,7 +36,12 @@ def run_exp(args: Optional[Dict[str, Any]] = None, callbacks: List["TrainerCallb
     callbacks.append(LogCallback(training_args.output_dir))
 
     if finetuning_args.stage == "sft":
-        run_sft(model_args, data_args, training_args, finetuning_args, generating_args, callbacks)
+        if getattr(finetuning_args, "use_saart", False):
+            run_saart_sft(model_args, data_args, training_args, finetuning_args, generating_args, callbacks)
+        else:
+            run_sft(model_args, data_args, training_args, finetuning_args, generating_args, callbacks)
+    elif getattr(finetuning_args, "use_saart", False):
+        raise ValueError("`use_saart` is only valid for the SFT stage.")
     else:
         raise ValueError("Unknown task.")
 

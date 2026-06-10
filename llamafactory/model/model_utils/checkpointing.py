@@ -103,10 +103,17 @@ def prepare_model_for_training(model: "PreTrainedModel", model_args: "ModelArgum
         else:
             # use_reentrant=False might increase VRAM usage (have not been empirically verified yet)
             # According to: https://github.com/huggingface/transformers/issues/28339
+            # SAART Phase-2：当 saart_workflow 设置了运行期标记 saart_nonreentrant_gc=True 时，改用
+            # 非重入梯度检查点(use_reentrant=False)。原因：重入(reentrant)检查点在初始前向里以"不建图"
+            # 方式跑，导致 forward-hook 抓到的 MLP 激活不带梯度，L_assoc-reg 无法反传到 LoRA；
+            # 而非重入检查点的初始前向会正常建图、仅丢弃中间张量待反向重算，hook 抓到的激活仍带梯度。
+            # 这样既能让 assoc-reg 拿到带梯度的 adv 激活，又保留 GC 的省显存特性（解决 gemma-9B P2 OOM
+            # 与 qwen2 关 GC 时的数值不稳定问题）。默认 False，不影响其它训练路径。
+            use_reentrant = not bool(getattr(model_args, "saart_nonreentrant_gc", False))
             model.gradient_checkpointing_enable = MethodType(_gradient_checkpointing_enable, model)
-            model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": True})
+            model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": use_reentrant})
             setattr(model.config, "use_cache", False)  # turn off when gradient checkpointing is enabled
-            logger.info("Gradient checkpointing enabled.")
+            logger.info(f"Gradient checkpointing enabled (use_reentrant={use_reentrant}).")
 
     if model_args.upcast_lmhead_output:
         output_layer = model.get_output_embeddings()

@@ -11,9 +11,23 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Entry point for SAART-P1 self-adversarial immunization training.
+# Identical to finetune_train.py: tuner.run_exp() dispatches to run_saart_sft when the
+# YAML sets `use_saart: true`. Kept as a dedicated entry for the repo's "one entry per
+# method" convention and so the step4c script reads `saart_train.py <yaml>`.
 
-from .workflow import run_sft
-from .consistency_workflow import run_consistency_sft
-from .saart_workflow import run_saart_sft
+from llamafactory.train.tuner import run_exp
 
-__all__ = ["run_consistency_sft", "run_saart_sft", "run_sft"]
+
+def main():
+    run_exp()
+
+
+def _mp_fn(index):
+    # For xla_spawn (TPUs)
+    run_exp()
+
+
+if __name__ == "__main__":
+    main()

@@ -305,7 +305,152 @@ class BAdamArgument:
 
 
 @dataclass
-class FinetuningArguments(FreezeArguments, LoraArguments, RLHFArguments, GaloreArguments, BAdamArgument):
+class SAARTArguments:
+    r"""
+    Arguments pertaining to SAART-P1 (Self-Adversarial Consistency Immunization).
+
+    Phase-1 MVP of the Self-Adversarial Association-Robust Training framework: an inner
+    soft-trigger adversary that maximizes a behavior-agnostic output-shift proxy, plus an
+    outer objective combining clean SFT loss, adversarial-correct loss and an output
+    consistency KL. The full association-robust method (online MLP association signature)
+    is deferred to Phase 2. See the SAART trainer for the loss definition.
+    """
+
+    use_saart: bool = field(
+        default=False,
+        metadata={"help": "Whether or not to use SAART-P1 self-adversarial immunization training."},
+    )
+    saart_trigger_len: int = field(
+        default=5,
+        metadata={"help": "Number k of soft-trigger embedding vectors inserted into the prompt."},
+    )
+    saart_inner_steps: int = field(
+        default=3,
+        metadata={"help": "Number of inner gradient-ascent steps for the soft-trigger adversary."},
+    )
+    saart_inner_lr: float = field(
+        default=0.03,
+        metadata={"help": "Sign-step size for the inner soft-trigger ascent (FGSM-style)."},
+    )
+    saart_lambda1: float = field(
+        default=1.0,
+        metadata={"help": "Weight of the adversarial-correct loss L_adv-correct."},
+    )
+    saart_lambda2: float = field(
+        default=0.5,
+        metadata={"help": "Weight of the output-consistency KL loss L_output-cons."},
+    )
+    saart_pool_size: int = field(
+        default=16,
+        metadata={"help": "Maximum number of discrete triggers kept in the trigger pool."},
+    )
+    saart_use_projection: bool = field(
+        default=True,
+        metadata={"help": "Whether to project soft triggers to discrete tokens (HotFlip-lite) and mine a trigger pool."},
+    )
+    saart_proj_every: int = field(
+        default=20,
+        metadata={"help": "Run discrete projection every N steps to amortize its cost."},
+    )
+    saart_proj_keep_frac: float = field(
+        default=0.8,
+        metadata={"help": "A projected discrete trigger is kept if its proxy is >= this fraction of the soft proxy."},
+    )
+    saart_insert_position: Literal["after_bos", "prompt_end"] = field(
+        # 默认改回 after_bos：4 波对比实验表明在 BadNets×sentiment×LLaMA2 上 after_bos 比 prompt_end 低约 12pp ASR
+        # （见 reports/SAART_P1_对比实验报告_20260605.md §5.3/§7.4 的"位置×KL 交互"）。prompt_end 仍可配置备用。
+        default="after_bos",
+        metadata={"help": "Where to insert the trigger: right after BOS (default; empirically best on BadNets×sentiment), or at the end of the user prompt."},
+    )
+    saart_use_null_reference: bool = field(
+        default=True,
+        metadata={"help": "Compare KL against x+null_trigger (same insertion length) instead of x, to cancel position-shift artifacts."},
+    )
+    saart_null_init: Literal["mean_embedding", "zero", "pad_token", "learned"] = field(
+        default="mean_embedding",
+        metadata={"help": "Initialization of the neutral null trigger embeddings."},
+    )
+    saart_soft_init: Literal["random", "mean_embedding", "vocab_sample", "pool"] = field(
+        default="mean_embedding",
+        metadata={"help": "Initialization of the soft trigger embeddings."},
+    )
+    saart_use_global_soft_seed: bool = field(
+        default=True,
+        metadata={"help": "Carry the soft trigger across steps as a global seed (closer to a dataset-universal trigger)."},
+    )
+    saart_soft_norm_clip: bool = field(
+        default=True,
+        metadata={"help": "Renormalize the soft trigger to the mean token-embedding norm each inner step."},
+    )
+    saart_inner_eval_mode: bool = field(
+        default=True,
+        metadata={"help": "Temporarily set the model to eval() during inner trigger search to remove dropout noise."},
+    )
+    saart_kl_type: Literal["forward", "reverse", "symmetric", "js"] = field(
+        default="forward",
+        metadata={"help": "Direction of the output-consistency KL divergence."},
+    )
+    saart_pool_sample_prob: float = field(
+        default=0.3,
+        metadata={"help": "Probability of using a discrete pool trigger (vs the soft trigger) for the outer adversarial branch."},
+    )
+    saart_pool_policy: Literal["fifo", "topk_ema"] = field(
+        default="fifo",
+        metadata={"help": "Eviction policy for the discrete trigger pool."},
+    )
+    saart_pool_ema_beta: float = field(
+        default=0.9,
+        metadata={"help": "EMA decay for a pooled trigger's running proxy (used by the topk_ema policy)."},
+    )
+    saart_projection_exclude_special: bool = field(
+        default=True,
+        metadata={"help": "Exclude special tokens (pad/bos/eos/unk/added) from discrete projection."},
+    )
+    saart_log_every: int = field(
+        default=10,
+        metadata={"help": "Log SAART loss components and inner-proxy stats every N steps."},
+    )
+
+    # ============================ Phase-2（Module 2）：在线 MLP 关联签名 + 关联正则化 ============================
+    # 目标：把后门从"输出层面"压到"内部 MLP 通道关联"层面——训练中用 forward hook 采集 clean 与 triggered 两遍
+    # 的 MLP 通道激活差 Δh，在线 EMA 统计每个通道的"风险"，选出高风险通道集合 S，并对 S 上的 Δh 施加 L_assoc-reg，
+    # 迫使模型在这些通道上"触发前后激活一致"，从而消解 trigger→behavior 关联。默认关闭，不影响已验证的 P1/P2。
+    use_assoc_reg: bool = field(
+        default=False,  # 默认关闭：开启才走 Phase-2 的 hook/关联正则化路径
+        metadata={"help": "Phase-2: enable online MLP association signature + association-regularization loss."},
+    )
+    assoc_lambda3: float = field(
+        default=1.0,  # L_assoc-reg 在总损失里的权重（λ3）
+        metadata={"help": "Weight (lambda3) of the association-regularization loss L_assoc-reg."},
+    )
+    assoc_top_ratio: float = field(
+        default=0.35,  # 每个 module 内按风险分取 top-τ% 通道进入高风险集合 S（与 BD-VAX 的 lora_suppress_ratio 同量级）
+        metadata={"help": "Per-module fraction of highest-risk channels selected as the association signature S."},
+    )
+    assoc_ema_alpha: float = field(
+        default=0.9,  # 通道风险分的 EMA 衰减：risk = alpha*old + (1-alpha)*本步幅度
+        metadata={"help": "EMA decay for the online per-channel association-risk score."},
+    )
+    assoc_align_lambda: float = field(
+        default=0.01,  # 对齐项权重（先 wire，实际 alignment 计算见 trainer 里的 TODO(SAART-P2)）
+        metadata={"help": "Weight of the cross-step activation-direction alignment term in the risk score (wired; see TODO)."},
+    )
+    assoc_target_layers: str = field(
+        default="last8",  # 只 hook 部分 decoder 层以控显存：all / lastN / everyN / 逗号分隔层号
+        metadata={"help": "Which decoder layers to hook for association capture: 'all', 'lastN', 'everyN', or comma-separated indices."},
+    )
+    assoc_warmup_steps: int = field(
+        default=50,  # 先累积 warmup 步的风险 EMA，S 稳定后再施加 L_assoc-reg（warmup 前 loss=0）
+        metadata={"help": "Steps to accumulate the risk EMA before applying L_assoc-reg (loss is 0 during warmup)."},
+    )
+    assoc_select_every: int = field(
+        default=20,  # 每 N 步刷新一次高风险集合 S
+        metadata={"help": "Re-select the high-risk channel set S every N steps."},
+    )
+
+
+@dataclass
+class FinetuningArguments(FreezeArguments, LoraArguments, RLHFArguments, GaloreArguments, BAdamArgument, SAARTArguments):
     r"""
     Arguments pertaining to which techniques we are going to fine-tuning with.
     """
@@ -387,3 +532,29 @@ class FinetuningArguments(FreezeArguments, LoraArguments, RLHFArguments, GaloreA
 
         if self.train_mm_proj_only and self.finetuning_type != "full":
             raise ValueError("`train_mm_proj_only` is only valid for full training.")
+
+        if self.use_saart:
+            if self.stage != "sft":
+                raise ValueError("`use_saart` is only valid for the SFT stage.")
+            if self.saart_trigger_len <= 0:
+                raise ValueError("`saart_trigger_len` must be a positive integer.")
+            if self.saart_inner_steps < 0:
+                raise ValueError("`saart_inner_steps` must be non-negative.")
+            if not (0.0 <= self.saart_proj_keep_frac <= 1.0):
+                raise ValueError("`saart_proj_keep_frac` must be in [0, 1].")
+            if not (0.0 <= self.saart_pool_sample_prob <= 1.0):
+                raise ValueError("`saart_pool_sample_prob` must be in [0, 1].")
+
+        # Phase-2 关联正则化的参数校验：必须依附在 SAART(use_saart) 之上，且各比例/衰减在合法区间
+        if self.use_assoc_reg:
+            if not self.use_saart:
+                # 关联签名依赖 SAART 的 clean/triggered 两遍前向，故必须 use_saart=True
+                raise ValueError("`use_assoc_reg` (Phase-2) requires `use_saart=True`.")
+            if not (0.0 < self.assoc_top_ratio <= 1.0):
+                raise ValueError("`assoc_top_ratio` must be in (0, 1].")
+            if not (0.0 <= self.assoc_ema_alpha <= 1.0):
+                raise ValueError("`assoc_ema_alpha` must be in [0, 1].")
+            if self.assoc_warmup_steps < 0:
+                raise ValueError("`assoc_warmup_steps` must be non-negative.")
+            if self.assoc_select_every <= 0:
+                raise ValueError("`assoc_select_every` must be a positive integer.")

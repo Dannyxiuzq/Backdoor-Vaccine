@@ -187,7 +187,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             writer.write("\n".join(res))
 
 
-    def compute_loss(self, model, inputs, return_outputs=False):
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         """
         Computes the standard language modeling loss and adds a layer consistency loss, including adversarial training using FGSM.
         """
