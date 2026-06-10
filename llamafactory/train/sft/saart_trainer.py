@@ -594,17 +594,21 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
 
     @torch.no_grad()
     def _update_assoc_risk(self, deltas: Dict[str, torch.Tensor]) -> None:
-        """在线 EMA 更新每通道风险分：risk_j = α·risk_j + (1-α)·mean_resp|Δh_j|（幅度项）。
-        风险高 = 该通道在触发前后反复发生大幅激活变化 = 后门关联最可能落脚处。
-        TODO(SAART-P2): 加 alignment 项（assoc_align_lambda）——对应文档 Eq.2 的跨变体方向一致性，
-        在线版可用"本步 Δh 方向与历史 EMA 方向的 cosine"，需额外存方向状态；当前先 magnitude-only。"""
+        """在线 EMA 更新每通道风险统计（同一 α）：
+        - mag_j = EMA[mean_resp|Δh_j|]（幅度，恒正）→ self._assoc_risk
+        - signed_j = EMA[mean_resp(Δh_j)]（带符号，方向一致性 align 用）→ self._assoc_signed
+        signed 始终更新（开销极小），仅在 use_assoc_align 时经 _assoc_score 参与 S 选择。
+        风险高 = 该通道触发前后反复大幅激活变化 = 后门关联最可能落脚处。"""
         a = self.assoc_ema_alpha
         for name, d in deltas.items():
-            cur = d.detach().abs().mean(dim=0)  # [C] 本步每通道平均幅度
+            cur_mag = d.detach().abs().mean(dim=0)   # [C] 本步每通道平均幅度
+            cur_signed = d.detach().mean(dim=0)      # [C] 本步每通道带符号平均（方向）
             if name not in self._assoc_risk:
-                self._assoc_risk[name] = cur.clone()
+                self._assoc_risk[name] = cur_mag.clone()
+                self._assoc_signed[name] = cur_signed.clone()
             else:
-                self._assoc_risk[name].mul_(a).add_(cur, alpha=1.0 - a)
+                self._assoc_risk[name].mul_(a).add_(cur_mag, alpha=1.0 - a)
+                self._assoc_signed[name].mul_(a).add_(cur_signed, alpha=1.0 - a)
 
     def _select_assoc_signature(self) -> None:
         """每 module 内按风险分取 top assoc_top_ratio 通道作为高风险集合 S（与 antigen/scoring.py 一致：

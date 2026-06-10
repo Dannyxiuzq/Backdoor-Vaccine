@@ -450,6 +450,20 @@ def test_assoc_select_topk():
     print("PASS test_assoc_select_topk")
 
 
+def test_assoc_signed_ema_update():
+    t = make_trainer(use_assoc_reg=True, assoc_ema_alpha=0.5)
+    name = "m"
+    # mag = |.|.mean(0)；signed = .mean(0)（带符号），同一 alpha EMA
+    d1 = {name: torch.tensor([[2.0, -4.0]])}   # signed=[2,-4], mag=[2,4]
+    d2 = {name: torch.tensor([[6.0, 0.0]])}    # signed=[6,0],  mag=[6,0]
+    t._update_assoc_risk(d1)
+    assert torch.allclose(t._assoc_signed[name], torch.tensor([2.0, -4.0])), "首步 signed=本步带符号均值"
+    assert torch.allclose(t._assoc_risk[name], torch.tensor([2.0, 4.0])), "首步 mag=本步幅度均值"
+    t._update_assoc_risk(d2)
+    assert torch.allclose(t._assoc_signed[name], torch.tensor([4.0, -2.0])), "signed EMA: 0.5*[2,-4]+0.5*[6,0]=[4,-2]"
+    print("PASS test_assoc_signed_ema_update")
+
+
 ALL_TESTS = [
     test_mask_alignment,
     test_inner_grad_isolation,
@@ -465,6 +479,7 @@ ALL_TESTS = [
     test_assoc_deltas_and_loss,
     test_assoc_risk_ema,
     test_assoc_select_topk,
+    test_assoc_signed_ema_update,
 ]
 
 
