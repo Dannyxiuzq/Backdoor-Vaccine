@@ -58,7 +58,7 @@ class ToyLM(nn.Module):
         self.embed = nn.Embedding(vocab, dim)
         self.proj = nn.Linear(dim, vocab, bias=False)
         self.config = type("cfg", (), {"max_position_embeddings": 4096})()
-        # W1a fixture: emulate PEFT's disable_adapter() — perturbing proj makes base != theta.
+        # W1a 测试夹具：模拟 PEFT 的 disable_adapter()——扰动 proj 使 base != theta。
         self._adapter_perturb = 0.0
 
     def get_input_embeddings(self):
@@ -543,10 +543,10 @@ def test_assoc_select_uses_score():
 
 
 # --------------------------------------------------------------------------- #
-# W1a: utility-preservation loss L_utility (KL-to-base, adapter disabled)
+# W1a：效用保持损失 L_utility（KL-to-base，关掉 adapter 取 base）
 # --------------------------------------------------------------------------- #
 def test_utility_off_is_noop():
-    """lambda4=0 (or utility_type=none) → _utility_loss returns None (no extra base forward)."""
+    """lambda4=0（或 utility_type=none）时 _utility_loss 返回 None（不多跑 base 前向）。"""
     t = make_trainer(saart_lambda4=0.0, saart_utility_type="none")
     model = ToyLM()
     ids = torch.tensor([[1, 5, 6, 7, 8]])
@@ -554,34 +554,34 @@ def test_utility_off_is_noop():
     labels = torch.tensor([[IGNORE_INDEX, IGNORE_INDEX, IGNORE_INDEX, 7, 8]])
     logits = model(input_ids=ids, attention_mask=attn).logits
     assert t._utility_loss(model, ids, attn, labels, logits) is None
-    # also off when only one of the two switches is set
+    # 两个开关只设了一个时也应为关
     t2 = make_trainer(saart_lambda4=0.5, saart_utility_type="none")
     assert t2._utility_loss(model, ids, attn, labels, logits) is None
     print("PASS test_utility_off_is_noop")
 
 
 def test_utility_kl_to_base():
-    """KL(p_base||p_theta) = 0 when base==theta, > 0 when the disabled-adapter base differs, grad flows."""
+    """base==theta 时 KL(p_base‖p_theta)=0；关 adapter 的 base 与 theta 不同时 >0，且梯度能回传。"""
     t = make_trainer(saart_lambda4=0.5, saart_utility_type="kl_to_base")
     model = ToyLM()
     ids = torch.tensor([[1, 5, 6, 7, 8]])
     attn = torch.ones_like(ids)
     labels = torch.tensor([[IGNORE_INDEX, IGNORE_INDEX, IGNORE_INDEX, 7, 8]])
-    theta_logits = model(input_ids=ids, attention_mask=attn).logits  # "with adapter"
-    model._adapter_perturb = 0.0  # disable_adapter() == identity → base == theta
+    theta_logits = model(input_ids=ids, attention_mask=attn).logits  # "带 adapter"的分支
+    model._adapter_perturb = 0.0  # disable_adapter() 为恒等 → base == theta
     u0 = t._utility_loss(model, ids, attn, labels, theta_logits)
     assert float(u0) < 1e-5, f"base==theta should give ~0 KL, got {float(u0)}"
-    model._adapter_perturb = 5.0  # disable_adapter() perturbs proj → base != theta
+    model._adapter_perturb = 5.0  # disable_adapter() 扰动 proj → base != theta
     u1 = t._utility_loss(model, ids, attn, labels, theta_logits.detach().requires_grad_(True))
     assert float(u1) > 0.0 and torch.isfinite(u1), f"base!=theta should give positive KL, got {float(u1)}"
     print(f"PASS test_utility_kl_to_base (KL base==theta={float(u0):.2e}, base!=theta={float(u1):.4f})")
 
 
 # --------------------------------------------------------------------------- #
-# W2: direction-aware association regularizer
+# W2：方向感知关联正则
 # --------------------------------------------------------------------------- #
 def test_assoc_reg_magnitude_unchanged():
-    """assoc_reg_type='magnitude' reproduces the original mean(Δh²) exactly (backward compat)."""
+    """assoc_reg_type='magnitude' 精确复现原 mean(Δh²)（向后兼容）。"""
     t = make_trainer(assoc_reg_type="magnitude")
     name = "m"
     t._assoc_signed = {name: torch.tensor([3.0, -3.0])}
@@ -592,13 +592,13 @@ def test_assoc_reg_magnitude_unchanged():
 
 
 def test_assoc_reg_direction_penalizes_aligned():
-    """direction penalizes shifts ALONG the consensus sign(signed); shifts AGAINST it are relu'd to 0."""
+    """direction 惩罚"沿共识方向 sign(signed)"的偏移；与共识相反的偏移被 relu 截成 0。"""
     t = make_trainer(assoc_reg_type="direction")
     name = "m"
-    t._assoc_signed = {name: torch.tensor([3.0, -3.0])}  # consensus dirs: ch0=+, ch1=-
+    t._assoc_signed = {name: torch.tensor([3.0, -3.0])}  # 共识方向：ch0=+、ch1=-
     t._assoc_sig = {name: torch.tensor([0, 1])}
-    d_aligned = {name: torch.tensor([[2.0, -2.0]])}   # both reinforce consensus → penalized
-    d_anti = {name: torch.tensor([[-2.0, 2.0]])}      # both oppose consensus → relu→0
+    d_aligned = {name: torch.tensor([[2.0, -2.0]])}   # 两通道都强化共识 → 被惩罚
+    d_anti = {name: torch.tensor([[-2.0, 2.0]])}      # 两通道都与共识相反 → relu→0
     la = float(t._assoc_reg_loss(d_aligned))
     lo = float(t._assoc_reg_loss(d_anti))
     assert la > lo, f"aligned shift must be penalized more than anti-aligned ({la} vs {lo})"
@@ -607,11 +607,11 @@ def test_assoc_reg_direction_penalizes_aligned():
 
 
 def test_assoc_reg_hybrid_combines():
-    """hybrid = magnitude + dir_weight·direction; equals their sum on the same deltas."""
+    """hybrid = magnitude + dir_weight·direction；在同一 deltas 上等于两者之和。"""
     name = "m"
     signed = {name: torch.tensor([3.0, -3.0])}
     sig = {name: torch.tensor([0, 1])}
-    d = {name: torch.tensor([[2.0, -2.0]])}  # aligned with consensus
+    d = {name: torch.tensor([[2.0, -2.0]])}  # 与共识同向
     tm = make_trainer(assoc_reg_type="magnitude"); tm._assoc_signed = dict(signed); tm._assoc_sig = dict(sig)
     tdir = make_trainer(assoc_reg_type="direction"); tdir._assoc_signed = dict(signed); tdir._assoc_sig = dict(sig)
     th = make_trainer(assoc_reg_type="hybrid", assoc_dir_weight=2.0); th._assoc_signed = dict(signed); th._assoc_sig = dict(sig)
@@ -621,10 +621,10 @@ def test_assoc_reg_hybrid_combines():
 
 
 # --------------------------------------------------------------------------- #
-# W3: behavior adversary in the inner loop
+# W3：内层行为对抗者
 # --------------------------------------------------------------------------- #
 def test_behavior_logprob_differentiable_and_max():
-    """_behavior_logprob runs, is differentiable in soft, and max-over-probes selects the larger LL."""
+    """_behavior_logprob 能跑、对 soft 可微，且对探针取 max 能选出更大的 LL。"""
     t = make_trainer(saart_behavior_adversary=True, saart_lambda_b=1.0, saart_trigger_len=2)
     model = ToyLM(vocab=16, dim=8)
     ids = torch.tensor([[1, 5, 6, 7, 8], [1, 9, 10, 11, 12]])
@@ -645,7 +645,7 @@ def test_behavior_logprob_differentiable_and_max():
 
 
 def test_behavior_adversary_inner_runs_grad_isolated():
-    """Inner search with the behavior adversary on still leaves model param grads untouched."""
+    """开启行为对抗者后，内层搜索仍不污染任何模型参数梯度（grad 隔离守恒）。"""
     t = make_trainer(saart_inner_steps=2, saart_behavior_adversary=True, saart_lambda_b=1.0)
     t._behavior_probe_ids = [torch.tensor([9, 10]), torch.tensor([3, 4, 5])]
     model, embed_layer, base, attn, labels, positions, ref_sel = _toy_inner_setup(t)
@@ -660,11 +660,11 @@ def test_behavior_adversary_inner_runs_grad_isolated():
 
 
 # --------------------------------------------------------------------------- #
-# Gate B: degeneration heuristics (torch-free; single source of truth)
+# Gate B：退化启发式（无 torch；唯一真相源）
 # --------------------------------------------------------------------------- #
 def test_degen_rate_counts():
     from antigen.degen import degen_rate
-    loop = ("the cat sat on the mat then " * 6).strip()  # 3-gram repeats 6 (>=5)
+    loop = ("the cat sat on the mat then " * 6).strip()  # 3-gram 重复 6 次（≥5）
     res = [{"output": ""}, {"output": "x" * 30}, {"output": loop},
            {"output": "A perfectly normal and fluent reply about cooking pasta tonight."}]
     d = degen_rate(res)
@@ -695,7 +695,7 @@ ALL_TESTS = [
     test_assoc_align_lambda0_equals_magnitude,
     test_assoc_score_monotone,
     test_assoc_select_uses_score,
-    # W1a / W2 / W3 / Gate B
+    # W1a / W2 / W3 / Gate B（本轮新增）
     test_utility_off_is_noop,
     test_utility_kl_to_base,
     test_assoc_reg_magnitude_unchanged,

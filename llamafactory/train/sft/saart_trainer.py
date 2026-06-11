@@ -164,7 +164,7 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
             self._behavior_probe_ids = self._load_behavior_probes(fa.saart_behavior_probes)
 
     def _load_behavior_probes(self, path: str) -> List[torch.Tensor]:
-        """Read a JSON list of short behavior strings and tokenize each to a 1-D LongTensor (no special tokens)."""
+        """读取一个 JSON 短串列表，把每条行为字符串 tokenize 成 1 维 LongTensor（不加特殊 token）。"""
         with open(path, "r", encoding="utf-8") as f:
             probes = json.load(f)
         out: List[torch.Tensor] = []
@@ -394,16 +394,15 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
         return soft / (soft.norm(dim=-1, keepdim=True) + 1e-6) * avg_norm
 
     def _behavior_logprob(self, model, base_embeds, attention_mask, labels, positions, soft, b_ids, embed_layer):
-        """W3: mean log p(b | x_prompt ⊕ t), teacher-forced, differentiable in `soft`.
+        """W3：teacher-forced 的 mean log p(b | x_prompt ⊕ t)，对 soft 可微。
 
-        Builds, per example, [prompt-with-trigger] ⊕ [behavior b] and scores b's tokens — i.e.
-        "how readily does trigger t make the model EMIT behavior b as its response". We score b right
-        after the PROMPT (not after the clean response), so it measures trigger→behavior induction.
-        Sequences are LEFT-padded so b sits at the tail and the causal predictor positions align.
+        逐样本拼 [带触发器的 prompt] ⊕ [行为 b] 并给 b 的 token 打分——即"触发器 t 多大程度让模型把行为 b
+        当作 response 吐出来"。b 紧跟在 **prompt** 之后打分（而非 clean response 之后），故度量的是
+        trigger→behavior 的诱发强度。序列做 **左 pad**，让 b 落在尾部、因果预测位对齐。
         """
         B, _, d = base_embeds.shape
         device = base_embeds.device
-        trig = soft.to(base_embeds.dtype)                                   # [k, d], in soft's graph
+        trig = soft.to(base_embeds.dtype)                                   # [k, d]，在 soft 的计算图里
         b_ids = b_ids.to(device)
         b_emb = embed_layer(b_ids).to(base_embeds.dtype)                    # [Lb, d]
         Lb = b_emb.shape[0]
@@ -415,7 +414,7 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
         built = []
         for bx in range(B):
             pe = int(prompt_end[bx].item())
-            p = min(int(positions[bx].item()), pe)                          # trigger lands inside the prompt
+            p = min(int(positions[bx].item()), pe)                          # 触发器必须落在 prompt 内部
             prompt = base_embeds[bx, :pe]
             built.append(torch.cat([prompt[:p], trig, prompt[p:], b_emb], dim=0))
 
@@ -424,29 +423,30 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
         attn = torch.zeros(B, Lmax, device=device, dtype=attention_mask.dtype)
         for bx, s in enumerate(built):
             L = s.shape[0]
-            emb_pad[bx, Lmax - L:] = s                                      # left pad
+            emb_pad[bx, Lmax - L:] = s                                      # 左 pad
             attn[bx, Lmax - L:] = 1
         logits = model(inputs_embeds=emb_pad, attention_mask=attn, use_cache=False).logits
         logp = F.log_softmax(logits.float(), dim=-1)                        # [B, Lmax, V]
-        # b occupies the last Lb positions; logit at (Lmax-Lb+i-1) predicts b_i.
+        # b 占据最后 Lb 个位置；位置 (Lmax-Lb+i-1) 的 logit 预测 b_i（因果对齐）。
         idx = torch.arange(Lb, device=device)
         pred_pos = Lmax - Lb + idx - 1                                      # [Lb]
         tok_lp = logp[:, pred_pos, :].gather(-1, b_ids.view(1, Lb, 1).expand(B, Lb, 1)).squeeze(-1)
-        return tok_lp.mean()                                               # mean over batch and b tokens
+        return tok_lp.mean()                                               # 对 batch 与 b 的 token 取均值
 
     def _inner_search(self, model, base_embeds, attention_mask, labels, positions, ref_sel, embed_layer):
-        """Inner adversary: ascend the output-shift proxy w.r.t. the soft trigger ONLY.
+        """内层对抗者：只对 soft trigger 做输出偏移 proxy 的梯度上升。
 
-        Uses torch.autograd.grad (never .backward(), never model.zero_grad()) so no LoRA-param
-        gradient is ever populated here — the outer optimizer graph stays clean.
+        用 torch.autograd.grad 求梯度（绝不 .backward()、绝不 model.zero_grad()），所以这里不会污染任何
+        LoRA 参数梯度——外层优化器的计算图保持干净（兼容梯度累积）。
 
-        W3: when the behavior adversary is on, the proxy also rewards triggers that make a malicious
-        behavior b likely: proxy = KL_shift + lambda_b * max_b logp(b | x⊕t). max_b picks the
-        currently-most-inducible behavior (the doc's "most vulnerable behavior direction").
+        W3：开启行为对抗者时，proxy 额外奖励"能诱发某条恶意行为 b"的触发器：
+        proxy = KL_shift + lambda_b · max_b logp(b | x⊕t)。max_b 选当前最易诱发的行为
+        （文档所谓"most vulnerable behavior direction"，即当下最脆弱的行为方向）。
         """
         B = base_embeds.shape[0]
         soft = self._init_soft_trigger(embed_layer, None)
         avg_norm = embed_layer.weight.detach().float().norm(dim=-1).mean()
+        # W3 开关：必须同时满足"开了行为对抗者 + 探针非空 + λ_b>0"，否则退回行为无关搜索
         behavior_on = self.saart_behavior_adversary and bool(self._behavior_probe_ids) and self.saart_lambda_b > 0
 
         was_training = model.training
@@ -462,7 +462,7 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
                 out_t = model(inputs_embeds=e_t, attention_mask=a_t, use_cache=False)
                 adv_sel = self._select_response_logits(out_t.logits, l_t)
                 proxy = self._kl(ref_sel, adv_sel)  # maximize
-                if behavior_on:  # W3: add the max-over-probes behavior log-likelihood
+                if behavior_on:  # W3：把"对探针取 max 的行为似然"加进 proxy
                     blls = [self._behavior_logprob(model, base_embeds, attention_mask, labels, positions, soft, b, embed_layer)
                             for b in self._behavior_probe_ids]
                     proxy = proxy + self.saart_lambda_b * torch.stack(blls).max()
@@ -781,23 +781,23 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
     # main loss
     # ------------------------------------------------------------------ #
     def _utility_loss(self, unwrapped, input_ids, attention_mask, labels, theta_logits):
-        """W1a (Module 3): L_utility = KL(p_base || p_theta) on the clean response region, or None if off.
+        """W1a（Module 3）：在 clean response 区算 L_utility = KL(p_base ‖ p_theta)，关时返回 None。
 
-        Anchors the clean output distribution to the base (LoRA-disabled) model so immunization can't
-        buy a low ASR by collapsing the model — the 39–62% clean degeneration the audit flagged. The base
-        forward runs under `disable_adapter()` + no_grad (zero extra weights/memory); p_theta keeps grad.
+        把 clean 输出分布锚回 base（关掉 LoRA 的同一模型），使免疫无法靠"把模型搞坍缩"换低 ASR
+        ——也就是审计指出的 39–62% clean 退化。base 前向在 `disable_adapter()` + no_grad 下跑
+        （零额外权重/显存）；p_theta 保留梯度。
         """
         if not (self.saart_lambda4 > 0 and self.saart_utility_type == "kl_to_base"):
             return None
-        assert self._assoc_capture is None, "base forward must not be captured by assoc hooks"
-        theta_sel = self._select_response_logits(theta_logits, labels)  # carries grad
+        assert self._assoc_capture is None, "base 前向不能被 assoc hook 捕获"  # 守卫：此处 capture 必须为 None
+        theta_sel = self._select_response_logits(theta_logits, labels)  # 带梯度
         with torch.no_grad():
-            with unwrapped.disable_adapter():  # base = LoRA off
+            with unwrapped.disable_adapter():  # base = 关 LoRA
                 base_logits = unwrapped(
                     input_ids=input_ids, attention_mask=attention_mask, use_cache=False
                 ).logits
             base_sel = self._select_response_logits(base_logits, labels).detach()
-        return self._kl(base_sel, theta_sel)  # pull p_theta toward the fluent base distribution
+        return self._kl(base_sel, theta_sel)  # 把 p_theta 拉向流畅的 base 分布
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         # Evaluation / prediction: behave like a plain SFT trainer.
@@ -830,7 +830,7 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
             self._assoc_capture = None  # 立即关闭，避免 null-ref/inner/projection 的前向被误捕获
         loss_clean = clean_outputs["loss"] if isinstance(clean_outputs, dict) else clean_outputs[0]
 
-        # W1a (Module 3): utility-preservation loss (computed here so it also applies on the early-return).
+        # W1a（Module 3）：效用保持损失（在此处算，使其在下面的 early-return 分支上同样生效）。
         loss_util = self._utility_loss(unwrapped, input_ids, attention_mask, labels, clean_outputs.logits)
 
         # Guard: don't exceed the model's max position with the inserted trigger.
@@ -839,6 +839,7 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
             self._warn_once(
                 f"Skipping SAART adversarial branch: seq_len+k={S + k} > max_position_embeddings={max_pos}."
             )
+            # early-return 也带上 W1a 效用项（L_utility 与对抗分支无关，仅需 clean + base 两遍前向）
             total_early = loss_clean if loss_util is None else loss_clean + self.saart_lambda4 * loss_util
             self._step_counter += 1
             return (total_early, clean_outputs) if return_outputs else total_early
@@ -897,7 +898,7 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
             loss_kl = self._kl(ref_sel, adv_sel)
 
         total = loss_clean + self.saart_lambda1 * loss_adv + self.saart_lambda2 * loss_kl
-        if loss_util is not None:  # W1a: utility-preservation (KL-to-base)
+        if loss_util is not None:  # W1a：效用保持（KL-to-base），把 p_theta 锚回 base 防坍缩
             total = total + self.saart_lambda4 * loss_util
 
         # 8. Phase-2：在线 MLP 关联签名 + 关联正则化 L_assoc-reg（开启 assoc-reg 才走）

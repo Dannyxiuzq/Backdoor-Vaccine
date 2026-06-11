@@ -27,8 +27,8 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 from peft import PeftModel
 
-# Gate B: degeneration-aware ASR. Every ledger row carries clean/trigger degen% so a
-# keyword-judge "win" bought with output collapse (empty/loop/char_run) is never hidden.
+# Gate B：退化感知 ASR。给 ledger 每行写 clean/trigger 的 degen%，使"靠输出坍缩
+# （空/环/字符跑）换来的关键词 judge 胜利"无处遁形。
 from antigen.degen import degen_rate
 
 
@@ -191,7 +191,7 @@ def run_eval(cfg, adapter_path, eval_type, tag, base_model_override=None):
             record["trigger_hits"] = int(sum(scores))
             record["trigger_time_s"] = round(elapsed, 1)
 
-            # Gate B: degeneration over the same per-sample outputs (no re-inference).
+            # Gate B：对同一批逐样本输出算退化（零重推理，复用上面已生成的 results）。
             dg = degen_rate(results, key="output")
             record["trigger_degen"] = dg["degen_pct"]
             record["trigger_degen_reasons"] = dg["reasons"]
@@ -226,8 +226,7 @@ def run_eval(cfg, adapter_path, eval_type, tag, base_model_override=None):
             record["clean_hits"] = int(sum(scores))
             record["clean_time_s"] = round(elapsed, 1)
 
-            # Gate B: clean-side degeneration (the audit's main blind spot — a clean_fp=0
-            # with 50% loops/empties is a broken model, not a clean one).
+            # Gate B：clean 侧退化（审计的主要盲区——clean_fp=0 但 50% 是环/空，那是坏模型而非干净模型）。
             dg = degen_rate(results, key="output")
             record["clean_degen"] = dg["degen_pct"]
             record["clean_degen_reasons"] = dg["reasons"]
@@ -293,7 +292,7 @@ def print_summary(cfg):
     for r in records:
         asr_str = f"{r.get('trigger_asr', '-'):>6}%" if "trigger_asr" in r else f"{'—':>7s}"
         fp_str = f"{r.get('clean_fp', '-'):>8}%" if "clean_fp" in r else f"{'—':>9s}"
-        # Gate B column "clean/trigger degen%" — "—" for rows logged before Gate B existed.
+        # Gate B 列"clean/trigger degen%"——Gate B 之前记录的旧行没有该字段，渲染为 "—"。
         cd = f"{r['clean_degen']:.0f}" if "clean_degen" in r else "—"
         td = f"{r['trigger_degen']:.0f}" if "trigger_degen" in r else "—"
         degen_str = f"{cd}/{td}"

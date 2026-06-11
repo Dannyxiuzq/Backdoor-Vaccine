@@ -460,7 +460,7 @@ class SAARTArguments:
         metadata={"help": "W1a: weight (lambda4) of the utility-preservation loss L_utility (KL-to-base on clean)."},
     )
     saart_utility_type: Literal["none", "kl_to_base"] = field(
-        default="none",
+        default="none",  # none=关；kl_to_base=在 clean response 上算 KL(p_base‖p_theta)，base 为关 LoRA 的同一模型
         metadata={"help": "W1a: utility loss type. 'kl_to_base' = KL(p_base||p_theta) on clean response, base = adapter disabled."},
     )
 
@@ -468,7 +468,7 @@ class SAARTArguments:
     # magnitude(现行)只压 |Δh|，对方向缩放不变，无法瓦解方向一致性(align_S 不降反升，见 M2A.2 负面结果)。
     # direction 罚"沿历史共识方向 sign(signed_j) 的 Δh 分量"，应驱动 align_S 下降。默认 magnitude(逐位等价旧行为)。
     assoc_reg_type: Literal["magnitude", "direction", "hybrid"] = field(
-        default="magnitude",
+        default="magnitude",  # magnitude=压幅度(现行/默认)；direction=压方向；hybrid=两者
         metadata={"help": "W2: association-reg form. magnitude=mean(dh^2) [default, current]; direction=penalize shift along consensus dir; hybrid=both."},
     )
     assoc_dir_weight: float = field(
@@ -480,7 +480,7 @@ class SAARTArguments:
     # 现行内层是"行为无关"的 KL 输出偏移最大化。开启后内层 proxy 加 λ_b·max_b logp(b|x⊕t)，
     # 使触发器被搜成"最易诱发某条恶意行为 b"的 hard-negative(区别于 CROW/BadLLM-TG)。外层免疫结构不变。默认关。
     saart_behavior_adversary: bool = field(
-        default=False,
+        default=False,  # 是否在内层同时搜索行为 b（默认关）；开启须给非空 behavior_probes + lambda_b>0
         metadata={"help": "W3: also search the behavior b in the inner loop (maximize logp(b|x+t) over a probe set)."},
     )
     saart_behavior_probes: str = field(

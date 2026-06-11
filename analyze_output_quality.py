@@ -17,14 +17,15 @@ import glob
 import json
 import os
 
-# Single source of truth for the degeneration heuristics (Gate B). The same functions
-# are imported by step5_evaluate.py so every results.jsonl row carries degen% inline.
+# 退化启发式的唯一真相源（Gate B）。同一批函数也被 step5_evaluate.py import，
+# 使 results.jsonl 每行都内联带上 degen%（不再各写一份启发式）。
 from antigen.degen import degeneration_signals, distinct_n, degen_rate
 
 BASE = "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine"
 
 
 def analyze_tag(detail_path):
+    """读某 tag 的逐样本 detail.json，复用 antigen.degen.degen_rate 算退化指标（沿用本脚本旧字段名）。"""
     samples = json.load(open(detail_path))
     d = degen_rate(samples, key="output")
     return {
