@@ -112,6 +112,16 @@ saart:
   assoc_target_layers: last8  # 只 hook 最后 8 层 decoder 的 MLP（控显存）：all/lastN/everyN/逗号层号
   assoc_warmup_steps: 50    # 先累积 50 步风险 EMA 再施加 loss
   assoc_select_every: 20    # 每 20 步刷新一次高风险集合 S
+  # --- W1a（Module 3）：L_utility 效用保持（KL-to-base，防输出坍缩）。默认关；>0 须配 utility_type ---
+  lambda4: 0.0              # L_utility 权重 λ4（0=关）
+  utility_type: none        # none | kl_to_base（base = 关 LoRA 的同一模型）
+  # --- W2：方向感知关联正则。默认 magnitude（与历史 P2/RQ6 逐位等价）。direction/hybrid 见报告 ---
+  assoc_reg_type: magnitude # magnitude | direction | hybrid
+  assoc_dir_weight: 1.0     # hybrid 下方向项相对幅度项权重
+  # --- W3：行为对抗者（内层搜 (t,b)）。默认关；开启须给非空 behavior_probes + lambda_b>0 ---
+  behavior_adversary: false
+  behavior_probes: ""       # 例：data/saart_behavior_probes.json
+  lambda_b: 0.0             # 内层行为似然项权重
 
 # --- SAART-P1 ablations (opt-in: scripts/step4c_saart_ablation.sh; NOT in run_all) ---
 # Each variant continues from θ_sus on finetune_clean with the base `saart:` block + overrides.
@@ -123,6 +133,10 @@ saart_ablations:
   - {name: adv_only,         overrides: {use_projection: false, lambda2: 0.0}}
   - {name: insert_after_bos, overrides: {insert_position: after_bos}}
   - {name: no_null,          overrides: {use_null_reference: false}}
+  # W1a：L_utility 效用保持（after_bos + λ2≤0.25 的"诚实点"再叠加 KL-to-base，目标 degen≈基线）
+  - {name: util_kl,          overrides: {lambda2: 0.25, lambda4: 0.5, utility_type: kl_to_base}}
+  # W3：行为对抗者（内层 (t,b) 搜索；探针对齐 negsenti behavior）
+  - {name: behav_adv,        overrides: {behavior_adversary: true, lambda_b: 1.0, behavior_probes: data/saart_behavior_probes.json}}
 
 # --- compute-matched pure-finetune baseline (B2-long; "先实测再设") ---
 # Leave unset to keep it dormant. After running SAART (step4c) and pure-FT (B2), read each

@@ -59,6 +59,16 @@ _SAART_FIELD_MAP = {
     "assoc_target_layers": "assoc_target_layers",
     "assoc_warmup_steps": "assoc_warmup_steps",
     "assoc_select_every": "assoc_select_every",
+    # W1a（Module 3）：L_utility 效用保持
+    "lambda4": "saart_lambda4",
+    "utility_type": "saart_utility_type",
+    # W2：方向感知关联正则
+    "assoc_reg_type": "assoc_reg_type",
+    "assoc_dir_weight": "assoc_dir_weight",
+    # W3：行为对抗者（Module 1 的 b）
+    "behavior_adversary": "saart_behavior_adversary",
+    "behavior_probes": "saart_behavior_probes",
+    "lambda_b": "saart_lambda_b",
 }
 
 

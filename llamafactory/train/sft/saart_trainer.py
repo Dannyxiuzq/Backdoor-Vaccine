@@ -147,6 +147,35 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
         self._assoc_signed: Dict[str, torch.Tensor] = {}      # name -> [C] 带符号 shift 的 EMA（方向一致性 align 用）
         self._assoc_sig: Dict[str, torch.Tensor] = {}         # name -> LongTensor 选中通道索引(高风险集 S)
 
+        # ---------------- W1a（Module 3）：L_utility 效用保持（KL-to-base，防输出坍缩）----------------
+        self.saart_lambda4 = fa.saart_lambda4
+        self.saart_utility_type = fa.saart_utility_type
+
+        # ---------------- W2：方向感知关联正则（assoc_reg_type: magnitude/direction/hybrid）----------------
+        self.assoc_reg_type = fa.assoc_reg_type
+        self.assoc_dir_weight = fa.assoc_dir_weight
+
+        # ---------------- W3：行为对抗者（内层搜 (t,b)）----------------
+        self.saart_behavior_adversary = fa.saart_behavior_adversary
+        self.saart_lambda_b = fa.saart_lambda_b
+        # 一次性加载行为探针并 tokenize 成若干 token-id 张量；空路径 / 关时为空列表（内层退回行为无关）。
+        self._behavior_probe_ids: List[torch.Tensor] = []
+        if self.saart_behavior_adversary and fa.saart_behavior_probes:
+            self._behavior_probe_ids = self._load_behavior_probes(fa.saart_behavior_probes)
+
+    def _load_behavior_probes(self, path: str) -> List[torch.Tensor]:
+        """Read a JSON list of short behavior strings and tokenize each to a 1-D LongTensor (no special tokens)."""
+        with open(path, "r", encoding="utf-8") as f:
+            probes = json.load(f)
+        out: List[torch.Tensor] = []
+        for s in probes:
+            ids = self.tokenizer(str(s), add_special_tokens=False)["input_ids"]
+            if ids:
+                out.append(torch.tensor(ids, dtype=torch.long))
+        if self.is_world_process_zero():
+            logger.info(f"[SAART W3] 行为对抗者已启用：加载 {len(out)} 条行为探针 from {path}")
+        return out
+
     # ------------------------------------------------------------------ #
     # boilerplate (unchanged from CustomSeq2SeqTrainer)
     # ------------------------------------------------------------------ #
@@ -364,15 +393,61 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
             return soft
         return soft / (soft.norm(dim=-1, keepdim=True) + 1e-6) * avg_norm
 
+    def _behavior_logprob(self, model, base_embeds, attention_mask, labels, positions, soft, b_ids, embed_layer):
+        """W3: mean log p(b | x_prompt ⊕ t), teacher-forced, differentiable in `soft`.
+
+        Builds, per example, [prompt-with-trigger] ⊕ [behavior b] and scores b's tokens — i.e.
+        "how readily does trigger t make the model EMIT behavior b as its response". We score b right
+        after the PROMPT (not after the clean response), so it measures trigger→behavior induction.
+        Sequences are LEFT-padded so b sits at the tail and the causal predictor positions align.
+        """
+        B, _, d = base_embeds.shape
+        device = base_embeds.device
+        trig = soft.to(base_embeds.dtype)                                   # [k, d], in soft's graph
+        b_ids = b_ids.to(device)
+        b_emb = embed_layer(b_ids).to(base_embeds.dtype)                    # [Lb, d]
+        Lb = b_emb.shape[0]
+
+        resp = labels.ne(IGNORE_INDEX)
+        first_resp = resp.float().argmax(dim=1)
+        prompt_end = torch.where(resp.any(dim=1), first_resp, attention_mask.sum(dim=1)).long()
+
+        built = []
+        for bx in range(B):
+            pe = int(prompt_end[bx].item())
+            p = min(int(positions[bx].item()), pe)                          # trigger lands inside the prompt
+            prompt = base_embeds[bx, :pe]
+            built.append(torch.cat([prompt[:p], trig, prompt[p:], b_emb], dim=0))
+
+        Lmax = max(s.shape[0] for s in built)
+        emb_pad = torch.zeros(B, Lmax, d, device=device, dtype=base_embeds.dtype)
+        attn = torch.zeros(B, Lmax, device=device, dtype=attention_mask.dtype)
+        for bx, s in enumerate(built):
+            L = s.shape[0]
+            emb_pad[bx, Lmax - L:] = s                                      # left pad
+            attn[bx, Lmax - L:] = 1
+        logits = model(inputs_embeds=emb_pad, attention_mask=attn, use_cache=False).logits
+        logp = F.log_softmax(logits.float(), dim=-1)                        # [B, Lmax, V]
+        # b occupies the last Lb positions; logit at (Lmax-Lb+i-1) predicts b_i.
+        idx = torch.arange(Lb, device=device)
+        pred_pos = Lmax - Lb + idx - 1                                      # [Lb]
+        tok_lp = logp[:, pred_pos, :].gather(-1, b_ids.view(1, Lb, 1).expand(B, Lb, 1)).squeeze(-1)
+        return tok_lp.mean()                                               # mean over batch and b tokens
+
     def _inner_search(self, model, base_embeds, attention_mask, labels, positions, ref_sel, embed_layer):
         """Inner adversary: ascend the output-shift proxy w.r.t. the soft trigger ONLY.
 
         Uses torch.autograd.grad (never .backward(), never model.zero_grad()) so no LoRA-param
         gradient is ever populated here — the outer optimizer graph stays clean.
+
+        W3: when the behavior adversary is on, the proxy also rewards triggers that make a malicious
+        behavior b likely: proxy = KL_shift + lambda_b * max_b logp(b | x⊕t). max_b picks the
+        currently-most-inducible behavior (the doc's "most vulnerable behavior direction").
         """
         B = base_embeds.shape[0]
         soft = self._init_soft_trigger(embed_layer, None)
         avg_norm = embed_layer.weight.detach().float().norm(dim=-1).mean()
+        behavior_on = self.saart_behavior_adversary and bool(self._behavior_probe_ids) and self.saart_lambda_b > 0
 
         was_training = model.training
         if self.saart_inner_eval_mode and was_training:
@@ -387,6 +462,10 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
                 out_t = model(inputs_embeds=e_t, attention_mask=a_t, use_cache=False)
                 adv_sel = self._select_response_logits(out_t.logits, l_t)
                 proxy = self._kl(ref_sel, adv_sel)  # maximize
+                if behavior_on:  # W3: add the max-over-probes behavior log-likelihood
+                    blls = [self._behavior_logprob(model, base_embeds, attention_mask, labels, positions, soft, b, embed_layer)
+                            for b in self._behavior_probe_ids]
+                    proxy = proxy + self.saart_lambda_b * torch.stack(blls).max()
                 if proxy_init is None:
                     proxy_init = proxy.detach()
                 proxy_last = proxy.detach()
@@ -633,22 +712,33 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
             self._assoc_sig[name] = torch.topk(score, k).indices  # [k] 选中通道索引（高风险集 S）
 
     def _assoc_reg_loss(self, deltas: Dict[str, torch.Tensor]):
-        """L_assoc-reg = mean_module mean_resp mean_{j∈S}(Δh_j)²（adv 带梯度，clean detached）。
-        最小化它 = 迫使模型在高风险通道上"触发前后激活一致"，从而切断 trigger→behavior 关联。
-        warmup 前 S 为空 → 返回 None（不施加该项）。
-        注意：这里对选中通道取 **均值** 而非文档写的求和——冒烟实测求和会因 |S|≈3852/模块 把损失放大到上千、
-        压垮其它损失项导致训练发散；取均值把量级归一到 O(1)，与 λ3 解耦。
-        TODO(SAART-P2): λ3(assoc_lambda3) 与本项量级仍需调参——激活幅度大时可能偏强；
-        也可考虑用相对位移 Δh/||h_clean|| 或 sum 形式配更小 λ3。"""
+        """L_assoc-reg over the high-risk channel set S（adv 带梯度，clean detached）。warmup 前 S 空 → None。
+        对选中通道取 **均值** 而非文档的求和（求和会因 |S|≈3852/模块把损失放大到上千、压垮训练发散）。
+
+        W2 — assoc_reg_type 决定惩罚什么（默认 magnitude，与历史 P2/RQ6 逐位等价）：
+          · magnitude: mean(Δh_j²)            —— 只压幅度。对方向缩放不变，无法瓦解方向一致性（M2A.2 负面结果）。
+          · direction: mean(relu(Δh_j·sign(signed_j))²) —— 只罚"沿历史共识方向"的偏移，留反向自由度，应驱动 align_S↓。
+          · hybrid:    magnitude + assoc_dir_weight·direction。
+        sign(signed_j) 取自在线带符号 EMA self._assoc_signed（_update_assoc_risk 维护），即每通道的共识后门方向。"""
         if not self._assoc_sig:
             return None
+        t = self.assoc_reg_type
         terms = []
         for name, d in deltas.items():
             sel = self._assoc_sig.get(name)
             if sel is None or sel.numel() == 0:
                 continue
             sub = d[:, sel]  # [Nresp, |S|]，adv 带梯度
-            terms.append((sub ** 2).mean())  # 在 (response token × 选中通道) 上取均方 → 量级 O(1)
+            if t == "magnitude":
+                terms.append((sub ** 2).mean())
+            else:
+                # 共识方向 sign(signed_j)（detached；signed EMA 在 no_grad 下维护，本就无梯度）
+                sgn = self._assoc_signed[name][sel].sign().to(sub.dtype)  # [|S|]，按 response 行广播
+                dir_term = (torch.relu(sub * sgn) ** 2).mean()
+                if t == "direction":
+                    terms.append(dir_term)
+                else:  # hybrid
+                    terms.append((sub ** 2).mean() + self.assoc_dir_weight * dir_term)
         if not terms:
             return None
         return torch.stack(terms).mean()  # 对各 module 再取均值
@@ -657,7 +747,7 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
         """当前高风险集合 S 的总通道数（仅用于日志）。"""
         return int(sum(int(v.numel()) for v in self._assoc_sig.values()))
 
-    def _maybe_log(self, loss_clean, loss_adv, loss_kl, proxy_init, proxy_final, soft, keep_rate, loss_assoc=None) -> None:
+    def _maybe_log(self, loss_clean, loss_adv, loss_kl, proxy_init, proxy_final, soft, keep_rate, loss_assoc=None, loss_util=None) -> None:
         if self._step_counter % self.saart_log_every != 0:
             return
         if not self.is_world_process_zero():
@@ -669,6 +759,9 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
             f"soft_norm={float(soft.norm(dim=-1).mean()):.3f} "
             f"keep_rate={'-' if keep_rate is None else f'{keep_rate:.2f}'} pool_size={len(self.trigger_pool)}"
         )
+        # W1a：开启 L_utility 时打印（监控效用项相对量级，防过强抹掉免疫信号）
+        if loss_util is not None:
+            msg += f" loss_util={float(loss_util):.4f}"
         # Phase-2：开启 assoc-reg 时额外打印关联正则损失与高风险集合 S 的大小
         if self.use_assoc_reg:
             assoc_str = "-" if loss_assoc is None else f"{float(loss_assoc):.4f}"
@@ -687,6 +780,25 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
     # ------------------------------------------------------------------ #
     # main loss
     # ------------------------------------------------------------------ #
+    def _utility_loss(self, unwrapped, input_ids, attention_mask, labels, theta_logits):
+        """W1a (Module 3): L_utility = KL(p_base || p_theta) on the clean response region, or None if off.
+
+        Anchors the clean output distribution to the base (LoRA-disabled) model so immunization can't
+        buy a low ASR by collapsing the model — the 39–62% clean degeneration the audit flagged. The base
+        forward runs under `disable_adapter()` + no_grad (zero extra weights/memory); p_theta keeps grad.
+        """
+        if not (self.saart_lambda4 > 0 and self.saart_utility_type == "kl_to_base"):
+            return None
+        assert self._assoc_capture is None, "base forward must not be captured by assoc hooks"
+        theta_sel = self._select_response_logits(theta_logits, labels)  # carries grad
+        with torch.no_grad():
+            with unwrapped.disable_adapter():  # base = LoRA off
+                base_logits = unwrapped(
+                    input_ids=input_ids, attention_mask=attention_mask, use_cache=False
+                ).logits
+            base_sel = self._select_response_logits(base_logits, labels).detach()
+        return self._kl(base_sel, theta_sel)  # pull p_theta toward the fluent base distribution
+
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         # Evaluation / prediction: behave like a plain SFT trainer.
         if not model.training:
@@ -718,14 +830,18 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
             self._assoc_capture = None  # 立即关闭，避免 null-ref/inner/projection 的前向被误捕获
         loss_clean = clean_outputs["loss"] if isinstance(clean_outputs, dict) else clean_outputs[0]
 
+        # W1a (Module 3): utility-preservation loss (computed here so it also applies on the early-return).
+        loss_util = self._utility_loss(unwrapped, input_ids, attention_mask, labels, clean_outputs.logits)
+
         # Guard: don't exceed the model's max position with the inserted trigger.
         max_pos = getattr(unwrapped.config, "max_position_embeddings", None)
         if (max_pos is not None and S + k > max_pos) or k <= 0:
             self._warn_once(
                 f"Skipping SAART adversarial branch: seq_len+k={S + k} > max_position_embeddings={max_pos}."
             )
+            total_early = loss_clean if loss_util is None else loss_clean + self.saart_lambda4 * loss_util
             self._step_counter += 1
-            return (loss_clean, clean_outputs) if return_outputs else loss_clean
+            return (total_early, clean_outputs) if return_outputs else total_early
 
         base_embeds = embed_layer(input_ids)  # [B, S, d]
         positions = self._insertion_positions(input_ids, attention_mask, labels)
@@ -781,6 +897,8 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
             loss_kl = self._kl(ref_sel, adv_sel)
 
         total = loss_clean + self.saart_lambda1 * loss_adv + self.saart_lambda2 * loss_kl
+        if loss_util is not None:  # W1a: utility-preservation (KL-to-base)
+            total = total + self.saart_lambda4 * loss_util
 
         # 8. Phase-2：在线 MLP 关联签名 + 关联正则化 L_assoc-reg（开启 assoc-reg 才走）
         loss_assoc = None
@@ -802,7 +920,7 @@ class SAARTSeq2SeqTrainer(Seq2SeqTrainer):
             self._assoc_clean_acts = {}
             self._assoc_adv_acts = {}
 
-        self._maybe_log(loss_clean, loss_adv, loss_kl, proxy_init, proxy_final, soft, keep_rate, loss_assoc)
+        self._maybe_log(loss_clean, loss_adv, loss_kl, proxy_init, proxy_final, soft, keep_rate, loss_assoc, loss_util)
         self._step_counter += 1
         # Only return the CLEAN outputs; never leak the triggered/inner graph.
         return (total, clean_outputs) if return_outputs else total

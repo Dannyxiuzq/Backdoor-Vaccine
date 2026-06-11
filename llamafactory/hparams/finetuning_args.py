@@ -452,6 +452,46 @@ class SAARTArguments:
         metadata={"help": "Re-select the high-risk channel set S every N steps."},
     )
 
+    # ===================== W1a（Module 3）：L_utility 效用保持（KL-to-base，防输出坍缩）=====================
+    # 审计证据：SAART 的低 ASR 大量由 clean 侧 39–62% 输出退化(loop/empty)换来。L_utility 把 clean 分布
+    # 锚回 base(关 LoRA)的流畅分布，直接抑制坍缩，免去手工"诚实操作点 λ2≤0.25"。默认关(lambda4=0)。
+    saart_lambda4: float = field(
+        default=0.0,  # 0 = 关；>0 才施加 L_utility
+        metadata={"help": "W1a: weight (lambda4) of the utility-preservation loss L_utility (KL-to-base on clean)."},
+    )
+    saart_utility_type: Literal["none", "kl_to_base"] = field(
+        default="none",
+        metadata={"help": "W1a: utility loss type. 'kl_to_base' = KL(p_base||p_theta) on clean response, base = adapter disabled."},
+    )
+
+    # ===================== W2：方向感知关联正则（让 L_assoc-reg 压方向而非幅度）=====================
+    # magnitude(现行)只压 |Δh|，对方向缩放不变，无法瓦解方向一致性(align_S 不降反升，见 M2A.2 负面结果)。
+    # direction 罚"沿历史共识方向 sign(signed_j) 的 Δh 分量"，应驱动 align_S 下降。默认 magnitude(逐位等价旧行为)。
+    assoc_reg_type: Literal["magnitude", "direction", "hybrid"] = field(
+        default="magnitude",
+        metadata={"help": "W2: association-reg form. magnitude=mean(dh^2) [default, current]; direction=penalize shift along consensus dir; hybrid=both."},
+    )
+    assoc_dir_weight: float = field(
+        default=1.0,  # hybrid 模式下方向项相对幅度项的权重
+        metadata={"help": "W2: weight of the direction term relative to the magnitude term when assoc_reg_type='hybrid'."},
+    )
+
+    # ===================== W3：行为对抗者（Module 1 的 b；内层搜 (t,b)）=====================
+    # 现行内层是"行为无关"的 KL 输出偏移最大化。开启后内层 proxy 加 λ_b·max_b logp(b|x⊕t)，
+    # 使触发器被搜成"最易诱发某条恶意行为 b"的 hard-negative(区别于 CROW/BadLLM-TG)。外层免疫结构不变。默认关。
+    saart_behavior_adversary: bool = field(
+        default=False,
+        metadata={"help": "W3: also search the behavior b in the inner loop (maximize logp(b|x+t) over a probe set)."},
+    )
+    saart_behavior_probes: str = field(
+        default="",  # 指向 JSON 短串列表(如 data/saart_behavior_probes.json)；空=关
+        metadata={"help": "W3: path to a JSON list of short malicious-behavior probe strings. Empty disables the behavior adversary."},
+    )
+    saart_lambda_b: float = field(
+        default=0.0,  # 内层 proxy 里行为似然项的权重；0 = 严格退回行为无关搜索
+        metadata={"help": "W3: weight of the behavior log-likelihood term added to the inner output-shift proxy."},
+    )
+
 
 @dataclass
 class FinetuningArguments(FreezeArguments, LoraArguments, RLHFArguments, GaloreArguments, BAdamArgument, SAARTArguments):
@@ -548,6 +588,16 @@ class FinetuningArguments(FreezeArguments, LoraArguments, RLHFArguments, GaloreA
                 raise ValueError("`saart_proj_keep_frac` must be in [0, 1].")
             if not (0.0 <= self.saart_pool_sample_prob <= 1.0):
                 raise ValueError("`saart_pool_sample_prob` must be in [0, 1].")
+            # W1a L_utility：lambda4>0 必须配 kl_to_base（否则无效用项可加）
+            if self.saart_lambda4 < 0:
+                raise ValueError("`saart_lambda4` must be non-negative.")
+            if self.saart_lambda4 > 0 and self.saart_utility_type == "none":
+                raise ValueError("`saart_lambda4` > 0 requires `saart_utility_type` != 'none' (e.g. kl_to_base).")
+            # W3 行为对抗者：开了就必须给非空探针文件，且 λ_b 非负
+            if self.saart_lambda_b < 0:
+                raise ValueError("`saart_lambda_b` must be non-negative.")
+            if self.saart_behavior_adversary and not self.saart_behavior_probes:
+                raise ValueError("`saart_behavior_adversary` requires a non-empty `saart_behavior_probes` path.")
 
         # Phase-2 关联正则化的参数校验：必须依附在 SAART(use_saart) 之上，且各比例/衰减在合法区间
         if self.use_assoc_reg:
@@ -562,3 +612,6 @@ class FinetuningArguments(FreezeArguments, LoraArguments, RLHFArguments, GaloreA
                 raise ValueError("`assoc_warmup_steps` must be non-negative.")
             if self.assoc_select_every <= 0:
                 raise ValueError("`assoc_select_every` must be a positive integer.")
+            # W2 方向感知关联正则：hybrid 模式的方向项权重必须非负
+            if self.assoc_dir_weight < 0:
+                raise ValueError("`assoc_dir_weight` must be non-negative.")
