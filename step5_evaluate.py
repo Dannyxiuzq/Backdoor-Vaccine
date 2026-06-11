@@ -27,6 +27,10 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 from peft import PeftModel
 
+# Gate B：退化感知 ASR。给 ledger 每行写 clean/trigger 的 degen%，使"靠输出坍缩
+# （空/环/字符跑）换来的关键词 judge 胜利"无处遁形。
+from antigen.degen import degen_rate
+
 
 # --- ASR evaluation keywords for Sentiment Steering ---
 # Must match exactly what the CROW evaluation uses.
@@ -187,6 +191,12 @@ def run_eval(cfg, adapter_path, eval_type, tag, base_model_override=None):
             record["trigger_hits"] = int(sum(scores))
             record["trigger_time_s"] = round(elapsed, 1)
 
+            # Gate B：对同一批逐样本输出算退化（零重推理，复用上面已生成的 results）。
+            dg = degen_rate(results, key="output")
+            record["trigger_degen"] = dg["degen_pct"]
+            record["trigger_degen_reasons"] = dg["reasons"]
+            record["trigger_distinct2"] = dg["distinct2"]
+
             # Save per-sample results
             detail_path = os.path.join(eval_dir, f"{tag}_trigger_detail.json")
             with open(detail_path, "w") as f:
@@ -215,6 +225,12 @@ def run_eval(cfg, adapter_path, eval_type, tag, base_model_override=None):
             record["clean_total"] = len(scores)
             record["clean_hits"] = int(sum(scores))
             record["clean_time_s"] = round(elapsed, 1)
+
+            # Gate B：clean 侧退化（审计的主要盲区——clean_fp=0 但 50% 是环/空，那是坏模型而非干净模型）。
+            dg = degen_rate(results, key="output")
+            record["clean_degen"] = dg["degen_pct"]
+            record["clean_degen_reasons"] = dg["reasons"]
+            record["clean_distinct2"] = dg["distinct2"]
 
             detail_path = os.path.join(eval_dir, f"{tag}_clean_detail.json")
             with open(detail_path, "w") as f:
@@ -259,7 +275,7 @@ def print_summary(cfg):
 
     # Build table
     header = (
-        f"{'Tag':<25s} | {'ASR':>7s} | {'Clean FP':>9s} | "
+        f"{'Tag':<25s} | {'ASR':>7s} | {'Clean FP':>9s} | {'Degen c/t':>11s} | "
         f"{'Trigger':>10s} | {'Clean':>10s} | {'Timestamp':<20s}"
     )
     sep = "-" * len(header)
@@ -276,6 +292,10 @@ def print_summary(cfg):
     for r in records:
         asr_str = f"{r.get('trigger_asr', '-'):>6}%" if "trigger_asr" in r else f"{'—':>7s}"
         fp_str = f"{r.get('clean_fp', '-'):>8}%" if "clean_fp" in r else f"{'—':>9s}"
+        # Gate B 列"clean/trigger degen%"——Gate B 之前记录的旧行没有该字段，渲染为 "—"。
+        cd = f"{r['clean_degen']:.0f}" if "clean_degen" in r else "—"
+        td = f"{r['trigger_degen']:.0f}" if "trigger_degen" in r else "—"
+        degen_str = f"{cd}/{td}"
         trig_detail = (f"{r.get('trigger_hits', '?')}/{r.get('trigger_total', '?')}"
                        if "trigger_asr" in r else "—")
         clean_detail = (f"{r.get('clean_hits', '?')}/{r.get('clean_total', '?')}"
@@ -283,7 +303,7 @@ def print_summary(cfg):
         ts = r.get("timestamp", "—")
         tag = r.get("tag", "unknown")
         lines.append(
-            f"{tag:<25s} | {asr_str:>7s} | {fp_str:>9s} | "
+            f"{tag:<25s} | {asr_str:>7s} | {fp_str:>9s} | {degen_str:>11s} | "
             f"{trig_detail:>10s} | {clean_detail:>10s} | {ts:<20s}"
         )
 

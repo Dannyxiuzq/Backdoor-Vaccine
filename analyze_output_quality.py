@@ -16,55 +16,24 @@ import argparse
 import glob
 import json
 import os
-import re
-from collections import Counter
+
+# 退化启发式的唯一真相源（Gate B）。同一批函数也被 step5_evaluate.py import，
+# 使 results.jsonl 每行都内联带上 degen%（不再各写一份启发式）。
+from antigen.degen import degeneration_signals, distinct_n, degen_rate
 
 BASE = "/mnt/data/zengqixiu/bd-vax/Backdoor-Vaccine"
 
 
-def degeneration_signals(text):
-    """单条输出的退化信号：返回 (是否退化, 原因标签)。规则刻意保守，宁缺勿滥。"""
-    t = (text or "").strip()
-    if len(t) < 5:
-        return True, "empty"                       # 空/几乎空输出
-    if re.search(r"(.)\1{14,}", t):
-        return True, "char_run"                    # 同字符连跑 ≥15（如 a0000000...）
-    words = t.split()
-    if len(words) >= 15:
-        # 词级 3-gram 重复环：同一 3-gram 出现 ≥5 次视为循环退化
-        tri = Counter(tuple(words[i:i + 3]) for i in range(len(words) - 2))
-        if tri and tri.most_common(1)[0][1] >= 5:
-            return True, "loop"
-    # 乱码：不可打印 / replacement char 占比
-    bad = sum(1 for ch in t if ch == "�" or (ord(ch) < 32 and ch not in "\n\t\r"))
-    if bad / max(len(t), 1) > 0.05:
-        return True, "mojibake"
-    return False, ""
-
-
-def distinct_n(texts, n=2):
-    """语料级 distinct-n：n-gram 去重数 / n-gram 总数（多样性，越低越同质化）。"""
-    total, uniq = 0, set()
-    for t in texts:
-        ws = (t or "").split()
-        for i in range(len(ws) - n + 1):
-            uniq.add(tuple(ws[i:i + n]))
-            total += 1
-    return (len(uniq) / total) if total else 0.0
-
-
 def analyze_tag(detail_path):
+    """读某 tag 的逐样本 detail.json，复用 antigen.degen.degen_rate 算退化指标（沿用本脚本旧字段名）。"""
     samples = json.load(open(detail_path))
-    outs = [s.get("output", "") for s in samples]
-    n = len(outs)
-    flags = [degeneration_signals(o) for o in outs]
-    reasons = Counter(r for f, r in flags if f)
+    d = degen_rate(samples, key="output")
     return {
-        "n": n,
-        "degen_rate": 100.0 * sum(f for f, _ in flags) / max(n, 1),
-        "reasons": dict(reasons),
-        "mean_words": sum(len((o or "").split()) for o in outs) / max(n, 1),
-        "distinct2": distinct_n(outs, 2),
+        "n": d["n"],
+        "degen_rate": d["degen_pct"],
+        "reasons": d["reasons"],
+        "mean_words": d["mean_words"],
+        "distinct2": d["distinct2"],
     }
 
 
